@@ -1,0 +1,1818 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/middesk-design-system-1025396a-862c-4408-905a-d19bbcc9909a/colors_and_type.css">
+<link rel="stylesheet" href="_ds/middesk-design-system-1025396a-862c-4408-905a-d19bbcc9909a/fonts.css">
+<script src="_ds/middesk-design-system-1025396a-862c-4408-905a-d19bbcc9909a/_ds_bundle.js"></script>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  body{ background:var(--fog); font-family:var(--font-sans); color:var(--midnight); -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
+  @keyframes mdFade{ from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none} }
+  @keyframes mdPulse{ 0%,100%{opacity:1} 50%{opacity:.4} }
+  @keyframes mdDash{ to{ stroke-dashoffset:-14 } }
+  @keyframes mdGrow{ from{ opacity:0 } to{ opacity:1 } }
+  @keyframes mdSlide{ from{ transform:translateX(40px); opacity:.4 } to{ transform:none; opacity:1 } }
+  button{ font-family:inherit; }
+</style>
+</helmet>
+<div style="height: 100vh; width: 100%; position: absolute; left: -2px; top: -1px; font-size: 18px">{{ app }}</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;100%&quot;,&quot;height&quot;:&quot;100%&quot;},&quot;startDirection&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;A&quot;,&quot;B&quot;,&quot;C&quot;],&quot;default&quot;:&quot;A&quot;,&quot;tsType&quot;:&quot;'A'|'B'|'C'&quot;,&quot;section&quot;:&quot;Prototype&quot;},&quot;startView&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;identity&quot;,&quot;intelligence&quot;],&quot;default&quot;:&quot;intelligence&quot;,&quot;tsType&quot;:&quot;'identity'|'intelligence'&quot;,&quot;section&quot;:&quot;Prototype&quot;},&quot;showRiskPath&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Prototype&quot;}}">
+class Component extends DCLogic {
+  state = { direction:'A', view:'identity', timeIdx:5, sel:null, query:'address', expandedQ:0, showPath:true, intelQ:'', intelOpen:false, ingestedDoc:null, policy:null, openSec:null, openQ:null, attnOnly:false, decisionsOpen:false, attrsOpen:false, secOpen:{}, chat:[], chatInput:'', netMode:'graph', asOf:null, activeId:'vela' };
+
+  componentDidMount(){
+    let s={};
+    try{ s = JSON.parse(localStorage.getItem('mid-iv')||'{}'); }catch(e){}
+    this.setState({
+      direction: s.direction || this.props.startDirection || 'C',
+      view: s.view || this.props.startView || 'identity',
+      timeIdx: (s.timeIdx ?? 5),
+      query: s.query || 'address',
+      showPath: this.props.showRiskPath !== false,
+    });
+    import('./policy.js').then(m=>{ this._statusOf=m.statusOf; this.setState({policy:m.POLICY, openSec:m.POLICY.find(sec=>sec.q.some(q=>m.statusOf(q.tone)!=='pass'&&m.statusOf(q.tone)!=='info'))?.id || m.POLICY[0].id}); }).catch(e=>console.warn('policy load',e));
+    this._clearHover=()=>{ if(this.state.itmHover!=null) this.setState({itmHover:null}); };
+    const sc=document.getElementById('mid-scroll'); if(sc) sc.addEventListener('scroll',this._clearHover,{passive:true});
+    window.addEventListener('scroll',this._clearHover,{passive:true,capture:true});
+  }
+  componentWillUnmount(){
+    const sc=document.getElementById('mid-scroll'); if(sc&&this._clearHover) sc.removeEventListener('scroll',this._clearHover);
+    if(this._clearHover) window.removeEventListener('scroll',this._clearHover,{capture:true});
+  }
+  setS(patch){
+    this.setState(patch, ()=>{
+      try{ const {direction,view,timeIdx,query}=this.state;
+        localStorage.setItem('mid-iv', JSON.stringify({direction,view,timeIdx,query})); }catch(e){}
+    });
+  }
+
+  /* ---------- palette ---------- */
+  get RISK(){ return {
+    clear:{c:'var(--risk-clear)',label:'Clear'}, low:{c:'var(--risk-low)',label:'Low'},
+    watch:{c:'var(--risk-watch)',label:'Watch'}, elev:{c:'var(--risk-elev)',label:'Elevated'},
+    high:{c:'var(--risk-high)',label:'High'}, mute:{c:'var(--midnight-60)',label:'—'} }; }
+
+  /* ---------- data ---------- */
+  /* ---------- per-identity profiles ---------- */
+  get activeId(){ return this.state.activeId || 'vela'; }
+  get profile(){ return this.PROFILES[this.activeId] || this.PROFILES.vela; }
+  get nameOf(){ return this.profile.name; }
+  get facts(){ return this.profile.facts; }
+  get versions(){ return this.profile.versions; }
+  get decisions(){ return this.profile.decisions; }
+  get watch(){ return this.profile.watch; }
+  get dataAttrs(){ return this.profile.dataAttrs; }
+  get answers(){ return this.profile.answers || {}; }
+
+  get PROFILES(){ return {
+    vela:{ id:'vela', name:'Vela Logistics, Inc.',
+      facts:[['TIN','38-2049571'],['Entity type','C-Corporation'],['Formed','Mar 12, 2019'],['Home state','California'],['Foreign reg.','Texas'],['Status','Active · Good standing'],['Employees','~210'],['Industry','Trucking & logistics']],
+      versions:[
+        {v:'v1',date:'Mar 12, 2019',title:'Entity formed',detail:'Registered as a California C-Corporation with the Secretary of State.',changes:[['Status','—','Active'],['Home state','—','California'],['Entity type','—','Corporation']],matters:false,weight:'Routine'},
+        {v:'v2',date:'Jun 02, 2021',title:'Foreign registration · TX',detail:'Registered to do business in Texas, expanding the operating footprint.',changes:[['Foreign registrations','—','Texas (active)']],matters:false,weight:'Routine'},
+        {v:'v3',date:'Feb 18, 2023',title:'Officer added · CFO',detail:'Sarah Nguyen appointed CFO and recorded as a 15% beneficial owner.',changes:[['Officers','3','4'],['Beneficial owners','1','2']],matters:true,weight:'Review',why:'A new ≥25%-adjacent owner changes who controls the business you are lending to.'},
+        {v:'v4',date:'Oct 04, 2024',title:'Principal address changed',detail:'Moved to 4400 Wilshire Blvd — a shared commercial address used by several unrelated entities.',changes:[['Principal address','1100 Alameda St','4400 Wilshire Blvd']],matters:true,weight:'Watch',why:'The new address is shared with unrelated businesses — a weak signal worth noting, not acting on.'},
+        {v:'v5',date:'Aug 22, 2025',title:'UCC lien filed',detail:'A secured financing statement was filed by a commercial lender against equipment and receivables.',changes:[['UCC liens','0','1']],matters:true,weight:'Watch',why:'New secured debt affects collateral position and credit exposure.'},
+        {v:'v6',date:'Apr 21, 2026',title:'New beneficial owner detected',detail:'A Meridian Holdings restructure introduced a controlling owner connected — three hops out — to a high-risk entity.',changes:[['Controlling owner','Marcus Okonkwo','Meridian Holdings LLC'],['Network risk','Low','Elevated']],matters:true,weight:'Act',why:'Control passed to a holding company that links into a high-risk entity you cannot see from this record alone.'},
+      ],
+      decisions:[
+        {date:'Apr 21, 2026',title:'Beneficial owner change',outcome:'Pending',tone:'elev',mode:'Manual review',who:'Assigned · Dana Melas',why:'New controlling owner exposes an indirect link to a high-risk entity. Awaiting analyst decision.',sources:12},
+        {date:'Aug 22, 2025',title:'Lien filing review',outcome:'Approved · monitoring',tone:'watch',mode:'Manual',who:'Dana Melas',why:'Single UCC lien consistent with equipment financing. Cleared, flagged for ongoing watch.',sources:9},
+        {date:'Oct 04, 2024',title:'Address change review',outcome:'Approved',tone:'clear',mode:'Automatic',who:'Policy · Change Monitoring',why:'New address validated. Shared commercial address noted, below review threshold.',sources:6},
+        {date:'Mar 12, 2019',title:'Onboarding decision',outcome:'Approved',tone:'clear',mode:'Automatic',who:'Policy · KYB Standard',why:'Legal name, TIN, and registration verified across 18 sources. No watchlist hits.',sources:18},
+      ],
+      watch:[
+        {label:'Indirect high-risk link',sub:'Stillwater Imports — 3 hops via ownership',tone:'elev'},
+        {label:'Shared commercial address',sub:'4400 Wilshire Blvd — 2+ unrelated entities',tone:'watch'},
+        {label:'Active UCC lien',sub:'Equipment & receivables · since Aug 2025',tone:'watch'},
+      ],
+      dataAttrs:[
+        {g:'Registration', rows:[
+          {k:'Legal name',v:'Vela Logistics, Inc.',src:'CA SoS'},
+          {k:'DBA / FBN',v:'None on file',src:'CA SoS',muted:true},
+          {k:'Entity type',v:'C-Corporation',src:'CA SoS'},
+          {k:'TIN / EIN',v:'38-2049571',src:'IRS',mono:true,unique:true},
+          {k:'Formation date',v:'03.12.19',src:'CA SoS'},
+          {k:'Home state',v:'California',src:'CA SoS'},
+          {k:'Foreign registration',v:'Texas',src:'TX SoS'},
+          {k:'SoS status',v:'Active · good standing',src:'CA SoS'},
+          {k:'Registered agent',v:'Cogency Global Inc.',src:'CA SoS',excluded:true},
+        ]},
+        {g:'Locations', rows:[
+          {k:'Principal address',v:'4400 Wilshire Blvd, Los Angeles, CA',src:'Utility stmt',shared:3,weight:'weak'},
+          {k:'Prior address',v:'1100 Alameda St (until 2024)',src:'Filings',muted:true},
+        ]},
+        {g:'People & ownership', rows:[
+          {k:'Beneficial owner',v:'Meridian Holdings LLC — 60%',src:'FinCEN BOI',shared:2,weight:'strong'},
+          {k:'Beneficial owner',v:'Sarah Nguyen — 15%',src:'FinCEN BOI'},
+          {k:'Officer',v:'Sarah Nguyen — CFO',src:'CA SoS'},
+          {k:'Officer',v:'Marcus Okonkwo — Director',src:'CA SoS',shared:2,weight:'strong'},
+        ]},
+        {g:'Digital footprint', rows:[
+          {k:'Website',v:'velalogistics.com',src:'WHOIS · since 2019'},
+          {k:'Email domain',v:'@velalogistics.com',src:'MQ'},
+          {k:'Phone',v:'(310) ••• ••42',src:'MQ',mono:true},
+          {k:'Last login IP',v:'Los Angeles, CA',src:'ID check'},
+        ]},
+        {g:'Risk records', rows:[
+          {k:'UCC lien',v:'1 active — equipment & receivables',src:'UCC · 2025',weight:'watch'},
+          {k:'Adverse media',v:'1 indirect (connected entity)',src:'Network',weight:'watch'},
+        ]},
+      ],
+      connected:{ summary:'Three identities share data attributes with Vela. Ownership reveals who controls it — and risk travels in through connections this record can’t show on its own.',
+        note:'Meridian Holdings is itself 75% owned by Marcus Okonkwo',
+        own:[{id:'meridian',pct:60,rel:'Controlling owner',risk:'watch',note:'Holding company · added in the Apr 2026 restructure'},{id:'nguyen',pct:15,rel:'Direct owner · CFO',risk:'clear',note:'Individual beneficial owner'}],
+        conn:[{id:'harbor',via:'Shared officer — M. Okonkwo',strength:'strong',risk:'watch'},{id:'stillwater',via:'Shared officer · 3 hops out',strength:'moderate',risk:'high',flag:true},{id:'cedar',via:'Shared commercial address',strength:'weak',risk:'clear'}] },
+      answers:null },
+
+    anchor:{ id:'anchor', name:'Anchor Drayage Co.',
+      facts:[['TIN','82-6647120'],['Entity type','Corporation'],['Formed','Jul 09, 2016'],['Home state','California'],['Status','Active · Good standing'],['Employees','~85'],['Industry','Trucking & logistics']],
+      versions:[
+        {v:'v1',date:'Jul 09, 2016',title:'Entity formed',detail:'Registered as a California corporation.',changes:[['Status','—','Active'],['Home state','—','California']],matters:false,weight:'Routine'},
+        {v:'v2',date:'May 30, 2023',title:'Acquired by Meridian',detail:'Meridian Holdings LLC acquired 100% of Anchor Drayage.',changes:[['Owner','Founders','Meridian Holdings LLC']],matters:true,weight:'Review',why:'A change of control brings the acquirer’s risk profile into scope.'},
+        {v:'v3',date:'Mar 02, 2026',title:'Annual refresh',detail:'Registration and ownership re-verified. No changes.',changes:[['SoS status','—','Confirmed']],matters:false,weight:'Routine'},
+      ],
+      decisions:[
+        {date:'Mar 02, 2026',title:'Annual review',outcome:'Approved',tone:'clear',mode:'Automatic',who:'Policy · KYB Standard',why:'Registration, ownership, and TIN re-verified. No exceptions.',sources:14},
+        {date:'May 30, 2023',title:'Ownership change',outcome:'Approved',tone:'clear',mode:'Manual',who:'Dana Melas',why:'Meridian acquisition validated against BOI filing. Common control noted.',sources:8},
+      ],
+      watch:[{label:'Common ownership',sub:'100% owned by Meridian Holdings',tone:'low'}],
+      dataAttrs:[
+        {g:'Registration', rows:[
+          {k:'Legal name',v:'Anchor Drayage Co.',src:'CA SoS'},
+          {k:'Entity type',v:'Corporation',src:'CA SoS'},
+          {k:'TIN / EIN',v:'82-6647120',src:'IRS',mono:true,unique:true},
+          {k:'Formation date',v:'07.09.16',src:'CA SoS'},
+          {k:'SoS status',v:'Active · good standing',src:'CA SoS'},
+        ]},
+        {g:'People & ownership', rows:[
+          {k:'Beneficial owner',v:'Meridian Holdings LLC — 100%',src:'FinCEN BOI',shared:2,weight:'strong'},
+        ]},
+        {g:'Digital footprint', rows:[
+          {k:'Website',v:'anchordrayage.com',src:'WHOIS · since 2016'},
+          {k:'Phone',v:'(510) ••• ••18',src:'MQ',mono:true},
+        ]},
+      ],
+      connected:{ summary:'Anchor is wholly owned by Meridian Holdings, placing it in the same control structure as Vela.',
+        own:[{id:'meridian',pct:100,rel:'Sole owner',risk:'watch',note:'Wholly owned subsidiary'}],
+        conn:[{id:'vela',via:'Common owner — Meridian',strength:'strong',risk:'watch'}] },
+      answers:{} },
+
+    harbor:{ id:'harbor', name:'Harbor Freight Partners LLC',
+      facts:[['TIN','47-2210934'],['Entity type','LLC'],['Formed','Nov 20, 2018'],['Home state','Nevada'],['Status','Active · Good standing'],['Employees','~40'],['Industry','Freight brokerage']],
+      versions:[
+        {v:'v1',date:'Nov 20, 2018',title:'Entity formed',detail:'Registered as a Nevada LLC.',changes:[['Status','—','Active'],['Home state','—','Nevada']],matters:false,weight:'Routine'},
+        {v:'v2',date:'Sep 12, 2024',title:'Officer added',detail:'J. Reyes added as a managing officer.',changes:[['Officers','1','2']],matters:true,weight:'Review',why:'A shared officer connects Harbor into a broader network.'},
+        {v:'v3',date:'Feb 14, 2026',title:'Network flag',detail:'A shared officer links Harbor to a high-risk entity two hops out.',changes:[['Network risk','Low','Watch']],matters:true,weight:'Watch',why:'Risk can travel through the shared officer relationship.'},
+      ],
+      decisions:[
+        {date:'Feb 14, 2026',title:'Network review',outcome:'Approved · monitoring',tone:'watch',mode:'Manual',who:'Dana Melas',why:'Shared officer with Vela and an indirect link to a high-risk entity. Cleared with monitoring.',sources:10},
+        {date:'Nov 20, 2018',title:'Onboarding decision',outcome:'Approved',tone:'clear',mode:'Automatic',who:'Policy · KYB Standard',why:'Registration and TIN verified. No exceptions.',sources:11},
+      ],
+      watch:[
+        {label:'Shared officer',sub:'M. Okonkwo — also at Vela & Meridian',tone:'watch'},
+        {label:'Indirect high-risk link',sub:'Stillwater Imports — 2 hops via J. Reyes',tone:'watch'},
+      ],
+      dataAttrs:[
+        {g:'Registration', rows:[
+          {k:'Legal name',v:'Harbor Freight Partners LLC',src:'NV SoS'},
+          {k:'Entity type',v:'LLC',src:'NV SoS'},
+          {k:'TIN / EIN',v:'47-2210934',src:'IRS',mono:true,unique:true},
+          {k:'Formation date',v:'11.20.18',src:'NV SoS'},
+          {k:'SoS status',v:'Active · good standing',src:'NV SoS'},
+        ]},
+        {g:'People & ownership', rows:[
+          {k:'Officer',v:'Marcus Okonkwo — Director',src:'NV SoS',shared:2,weight:'strong'},
+          {k:'Officer',v:'J. Reyes — Managing officer',src:'NV SoS',shared:2,weight:'strong'},
+        ]},
+        {g:'Digital footprint', rows:[
+          {k:'Website',v:'harborfreightpartners.com',src:'WHOIS'},
+        ]},
+      ],
+      connected:{ summary:'Harbor shares officers with both Vela and a high-risk entity, making it a conduit for network risk.',
+        own:[],
+        conn:[{id:'okonkwo',via:'Officer — also at Vela',strength:'strong',risk:'watch'},{id:'reyes',via:'Co-officer',strength:'strong',risk:'elev'},{id:'stillwater',via:'2 hops via J. Reyes',strength:'moderate',risk:'high',flag:true}] },
+      answers:{
+        'What does the UBO structure look like?':{a:'No 25%+ owner',tone:'clear',insight:'Member-managed LLC with no single 25%+ beneficial owner on file.'},
+        'Which type best characterizes the org physical address?':{a:'Commercial',tone:'clear',insight:'Registered at a dedicated commercial office in Reno, NV.'},
+        'Do the BOs have web hits for negative news?':{a:'1 — indirect',tone:'watch',insight:'Adverse media tied to a connected entity through the shared officer, not Harbor directly.'},
+        "What is the org's AML risk rating?":{a:'Medium',tone:'watch',insight:'Elevated by a shared-officer link into a high-risk network; no direct exposure.'},
+      } },
+
+    meridian:{ id:'meridian', name:'Meridian Holdings LLC',
+      facts:[['TIN','61-1180255'],['Entity type','LLC · Holding co.'],['Formed','Apr 02, 2015'],['Home state','Delaware'],['Status','Active · Good standing'],['Subsidiaries','2'],['Industry','Holding company']],
+      versions:[
+        {v:'v1',date:'Apr 02, 2015',title:'Entity formed',detail:'Registered as a Delaware holding company.',changes:[['Status','—','Active'],['Home state','—','Delaware']],matters:false,weight:'Routine'},
+        {v:'v2',date:'May 30, 2023',title:'Acquired Anchor Drayage',detail:'Acquired 100% of Anchor Drayage Co.',changes:[['Subsidiaries','0','1']],matters:true,weight:'Review',why:'Expanding control footprint across multiple monitored businesses.'},
+        {v:'v3',date:'Apr 21, 2026',title:'Took control of Vela',detail:'Acquired a controlling 60% interest in Vela Logistics.',changes:[['Subsidiaries','1','2'],['Controls','Anchor','Anchor · Vela']],matters:true,weight:'Watch',why:'Concentration of control across your portfolio warrants a relationship-level view.'},
+      ],
+      decisions:[
+        {date:'Apr 21, 2026',title:'Control expansion review',outcome:'Approved · monitoring',tone:'watch',mode:'Manual',who:'Dana Melas',why:'Meridian now controls 2 monitored businesses. Concentration noted for relationship limits.',sources:9},
+        {date:'Apr 02, 2015',title:'Onboarding decision',outcome:'Approved',tone:'clear',mode:'Automatic',who:'Policy · KYB Standard',why:'Delaware registration and owner verified.',sources:7},
+      ],
+      watch:[
+        {label:'Ownership concentration',sub:'Controls 2 monitored businesses',tone:'watch'},
+        {label:'Owner overlap',sub:'75% owned by Marcus Okonkwo',tone:'low'},
+      ],
+      dataAttrs:[
+        {g:'Registration', rows:[
+          {k:'Legal name',v:'Meridian Holdings LLC',src:'DE SoS'},
+          {k:'Entity type',v:'LLC · Holding company',src:'DE SoS'},
+          {k:'TIN / EIN',v:'61-1180255',src:'IRS',mono:true,unique:true},
+          {k:'Formation date',v:'04.02.15',src:'DE SoS'},
+          {k:'SoS status',v:'Active · good standing',src:'DE SoS'},
+        ]},
+        {g:'People & ownership', rows:[
+          {k:'Beneficial owner',v:'Marcus Okonkwo — 75%',src:'FinCEN BOI',shared:2,weight:'strong'},
+          {k:'Subsidiary',v:'Anchor Drayage Co. — 100%',src:'BOI'},
+          {k:'Subsidiary',v:'Vela Logistics — 60%',src:'BOI'},
+        ]},
+      ],
+      connected:{ summary:'Meridian is the control hub — it owns Anchor outright and holds a controlling stake in Vela, all traced to a single individual.',
+        note:'Both subsidiaries inherit Meridian’s ownership risk',
+        own:[{id:'okonkwo',pct:75,rel:'Controlling owner',risk:'low',note:'Individual beneficial owner'}],
+        conn:[{id:'vela',via:'Owns 60%',strength:'strong',risk:'watch'},{id:'anchor',via:'Owns 100%',strength:'strong',risk:'low'}] },
+      answers:{
+        'What does the UBO structure look like?':{a:'1 owner ≥ 75%',tone:'low',insight:'Marcus Okonkwo holds 75% of Meridian; the remainder is held by two minority members.'},
+        "What is the org's AML risk rating?":{a:'Medium',tone:'watch',insight:'Rated Medium for control concentration across multiple monitored businesses.'},
+        'Reason to believe there are 25%+ owners not on the application?':{a:'No',tone:'clear',insight:'Ownership fully disclosed and matched to BOI filing.'},
+      } },
+
+    cedar:{ id:'cedar', name:'Cedar & Vine Café LLC',
+      facts:[['TIN','88-4471902'],['Entity type','LLC'],['Formed','Aug 15, 2022'],['Home state','California'],['Status','Active · Good standing'],['Employees','~18'],['Industry','Food service']],
+      versions:[
+        {v:'v1',date:'Aug 15, 2022',title:'Entity formed',detail:'Registered as a California LLC.',changes:[['Status','—','Active'],['Home state','—','California']],matters:false,weight:'Routine'},
+        {v:'v2',date:'Jan 09, 2026',title:'Annual refresh',detail:'Registration and ownership re-verified. No changes.',changes:[['SoS status','—','Confirmed']],matters:false,weight:'Routine'},
+      ],
+      decisions:[
+        {date:'Aug 15, 2022',title:'Onboarding decision',outcome:'Approved',tone:'clear',mode:'Automatic',who:'Policy · KYB Standard',why:'Legal name, TIN, and single owner verified. No exceptions.',sources:13},
+      ],
+      watch:[{label:'Shared commercial address',sub:'4400 Wilshire Blvd — weak signal only',tone:'clear'}],
+      dataAttrs:[
+        {g:'Registration', rows:[
+          {k:'Legal name',v:'Cedar & Vine Café LLC',src:'CA SoS'},
+          {k:'Entity type',v:'LLC',src:'CA SoS'},
+          {k:'TIN / EIN',v:'88-4471902',src:'IRS',mono:true,unique:true},
+          {k:'Formation date',v:'08.15.22',src:'CA SoS'},
+          {k:'SoS status',v:'Active · good standing',src:'CA SoS'},
+        ]},
+        {g:'Locations', rows:[
+          {k:'Registered address',v:'4400 Wilshire Blvd, Los Angeles, CA',src:'CA SoS',shared:3,weight:'weak'},
+        ]},
+        {g:'People & ownership', rows:[
+          {k:'Beneficial owner',v:'Elena Cruz — 100%',src:'FinCEN BOI'},
+        ]},
+      ],
+      connected:{ summary:'Cedar & Vine shares only a commercial address with Vela — a weak signal, not a control relationship.',
+        own:[],
+        conn:[{id:'vela',via:'Shared commercial address',strength:'weak',risk:'clear'}] },
+      answers:{} },
+
+    brightpath:{ id:'brightpath', name:'BrightPath Consulting',
+      facts:[['TIN','93-2205518'],['Entity type','LLC'],['Formed','Mar 28, 2021'],['Home state','California'],['Status','Active · Good standing'],['Employees','~9'],['Industry','Professional services']],
+      versions:[
+        {v:'v1',date:'Mar 28, 2021',title:'Entity formed',detail:'Registered as a California LLC.',changes:[['Status','—','Active'],['Home state','—','California']],matters:false,weight:'Routine'},
+        {v:'v2',date:'Dec 18, 2025',title:'Annual refresh',detail:'Registration re-verified. No changes.',changes:[['SoS status','—','Confirmed']],matters:false,weight:'Routine'},
+      ],
+      decisions:[
+        {date:'Mar 28, 2021',title:'Onboarding decision',outcome:'Approved',tone:'clear',mode:'Automatic',who:'Policy · KYB Standard',why:'Registration, TIN, and owner verified. No exceptions.',sources:12},
+      ],
+      watch:[{label:'Shared mailing address',sub:'4400 Wilshire Blvd — weak signal only',tone:'clear'}],
+      dataAttrs:[
+        {g:'Registration', rows:[
+          {k:'Legal name',v:'BrightPath Consulting LLC',src:'CA SoS'},
+          {k:'Entity type',v:'LLC',src:'CA SoS'},
+          {k:'TIN / EIN',v:'93-2205518',src:'IRS',mono:true,unique:true},
+          {k:'Formation date',v:'03.28.21',src:'CA SoS'},
+          {k:'SoS status',v:'Active · good standing',src:'CA SoS'},
+        ]},
+        {g:'Locations', rows:[
+          {k:'Mailing address',v:'4400 Wilshire Blvd, Los Angeles, CA',src:'Filings',shared:3,weight:'weak'},
+        ]},
+        {g:'People & ownership', rows:[
+          {k:'Beneficial owner',v:'Priya Anand — 100%',src:'FinCEN BOI'},
+        ]},
+      ],
+      connected:{ summary:'BrightPath shares only a mailing address with Vela — no ownership or officer overlap.',
+        own:[],
+        conn:[{id:'vela',via:'Shared mailing address',strength:'weak',risk:'clear'}] },
+      answers:{} },
+
+    stillwater:{ id:'stillwater', name:'Stillwater Imports LLC',
+      facts:[['TIN','59-3387461'],['Entity type','LLC'],['Formed','Jun 11, 2017'],['Home state','Florida'],['Status','Dissolved'],['Industry','Import / export']],
+      versions:[
+        {v:'v1',date:'Jun 11, 2017',title:'Entity formed',detail:'Registered as a Florida LLC.',changes:[['Status','—','Active'],['Home state','—','Florida']],matters:false,weight:'Routine'},
+        {v:'v2',date:'Oct 03, 2024',title:'Watchlist hit',detail:'A beneficial owner matched an OFAC-adjacent watchlist entry.',changes:[['Watchlist','Clear','Hit'],['Risk','Low','High']],matters:true,weight:'Act',why:'A direct watchlist hit is a hard stop for onboarding and monitoring.'},
+        {v:'v3',date:'Apr 19, 2026',title:'Dissolved',detail:'The Florida registration lapsed and the entity was administratively dissolved.',changes:[['SoS status','Active','Dissolved']],matters:true,weight:'Act',why:'A dissolved counterparty cannot be transacted with and severs standing agreements.'},
+      ],
+      decisions:[
+        {date:'Apr 19, 2026',title:'Dissolution flagged',outcome:'Declined',tone:'high',mode:'Manual review',who:'Assigned · Dana Melas',why:'Entity dissolved and carries an active watchlist hit. Recommended decline and network review.',sources:15},
+        {date:'Oct 03, 2024',title:'Watchlist review',outcome:'Escalated',tone:'high',mode:'Manual',who:'Dana Melas',why:'Beneficial owner matched a watchlist entry. Escalated for enhanced due diligence.',sources:11},
+      ],
+      watch:[
+        {label:'Active watchlist hit',sub:'Beneficial owner · OFAC-adjacent',tone:'high'},
+        {label:'Entity dissolved',sub:'FL registration lapsed Apr 2026',tone:'high'},
+        {label:'Feeds network risk',sub:'Linked to Vela & Harbor via officer',tone:'elev'},
+      ],
+      dataAttrs:[
+        {g:'Registration', rows:[
+          {k:'Legal name',v:'Stillwater Imports LLC',src:'FL SoS'},
+          {k:'Entity type',v:'LLC',src:'FL SoS'},
+          {k:'TIN / EIN',v:'59-3387461',src:'IRS',mono:true,unique:true},
+          {k:'Formation date',v:'06.11.17',src:'FL SoS'},
+          {k:'SoS status',v:'Dissolved',src:'FL SoS',weight:'watch'},
+        ]},
+        {g:'People & ownership', rows:[
+          {k:'Beneficial owner',v:'J. Reyes — 80%',src:'FinCEN BOI',shared:2,weight:'strong'},
+        ]},
+        {g:'Risk records', rows:[
+          {k:'Watchlist',v:'1 hit — OFAC-adjacent',src:'OFAC',weight:'watch'},
+          {k:'Adverse media',v:'3 articles',src:'Media',weight:'watch'},
+        ]},
+      ],
+      connected:{ summary:'Stillwater is the high-risk node your other identities connect back to — through a shared officer, two and three hops out.',
+        own:[],
+        conn:[{id:'reyes',via:'Owner / officer — 80%',strength:'strong',risk:'high'},{id:'harbor',via:'Shared officer · 2 hops',strength:'moderate',risk:'high',flag:true},{id:'vela',via:'Shared officer · 3 hops',strength:'moderate',risk:'high',flag:true}] },
+      answers:{
+        'Any sanctions or watchlist exposure?':{a:'Watchlist hit',tone:'high',insight:'A beneficial owner matched an OFAC-adjacent watchlist entry (2024). Direct exposure.'},
+        "What is the org's AML risk rating?":{a:'High',tone:'high',insight:'Rated High for a direct watchlist hit plus adverse media on a beneficial owner.'},
+        'Do the BOs have web hits for negative news?':{a:'3 — direct',tone:'high',insight:'Three adverse-media articles tied directly to the 80% beneficial owner.'},
+        'Reason to believe there are 25%+ owners not on the application?':{a:'Yes',tone:'high',insight:'Ownership structure is opaque; the disclosed owner does not reconcile with import records.'},
+        'Which type best characterizes the org physical address?':{a:'Vacant',tone:'watch',insight:'The registered Florida address is a vacant unit following dissolution.'},
+      } },
+  }; }
+
+  get entities(){ return {
+    vela:{name:'Vela Logistics, Inc.',type:'Corporation',sub:'CA · Trucking',risk:'watch',kind:'business'},
+    meridian:{name:'Meridian Holdings LLC',type:'Holding co.',sub:'DE',risk:'watch',kind:'business'},
+    anchor:{name:'Anchor Drayage Co.',type:'Corporation',sub:'CA · Trucking',risk:'low',kind:'business'},
+    harbor:{name:'Harbor Freight Partners LLC',type:'LLC',sub:'NV',risk:'watch',kind:'business'},
+    stillwater:{name:'Stillwater Imports LLC',type:'LLC',sub:'FL',risk:'high',kind:'business'},
+    cedar:{name:'Cedar & Vine Café LLC',type:'LLC',sub:'CA',risk:'clear',kind:'business'},
+    brightpath:{name:'BrightPath Consulting',type:'LLC',sub:'CA',risk:'clear',kind:'business'},
+    okonkwo:{name:'Marcus Okonkwo',type:'Individual',sub:'UBO',risk:'low',kind:'person'},
+    nguyen:{name:'Sarah Nguyen',type:'Individual',sub:'Officer',risk:'clear',kind:'person'},
+    reyes:{name:'J. Reyes',type:'Individual',sub:'Officer',risk:'high',kind:'person'},
+    lumen:{name:'Lumen Studio LLC',type:'LLC',sub:'CA',risk:'clear',kind:'business'},
+  }; }
+
+  /* ---------- atoms ---------- */
+  mono(t,extra){ return React.createElement('span',{style:{fontFamily:'var(--font-mono)',fontSize:10,letterSpacing:'.06em',textTransform:'uppercase',color:'var(--midnight-60)',...(extra||{})}},t); }
+  pill(t,tone,extra){
+    const m=this.RISK; const c=(m[tone]&&m[tone].c)||'var(--midnight-60)';
+    return React.createElement('span',{style:{display:'inline-flex',alignItems:'center',gap:6,padding:'4px 9px',borderRadius:9999,fontFamily:'var(--font-mono)',fontSize:10,letterSpacing:'.05em',textTransform:'uppercase',background:'color-mix(in srgb, '+c+' 12%, #fff)',color:c,border:'1px solid color-mix(in srgb, '+c+' 24%, #fff)',whiteSpace:'nowrap',...(extra||{})}},
+      React.createElement('span',{style:{width:6,height:6,borderRadius:'50%',background:c}}), t);
+  }
+  panel(style,...kids){ return React.createElement('div',{style:{background:'#fff',border:'1px solid var(--border)',borderRadius:18,overflow:'hidden',...(style||{})}},...kids); }
+  panelHead(title,right){ return React.createElement('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'15px 22px',borderBottom:'1px solid var(--border)'}},
+    React.createElement('span',{style:{fontSize:13,fontWeight:500,letterSpacing:'-.005em'}},title), right||null); }
+
+  /* ---------- shell ---------- */
+  Sidebar(){
+    const h=React.createElement; const {view}=this.state;
+    const item=(label,active,onClick,muted)=> h('button',{onClick:muted?undefined:onClick,disabled:!!muted,style:{display:'flex',alignItems:'center',gap:10,padding:'8px 10px',borderRadius:8,border:0,cursor:muted?'default':'pointer',background:active?'#0F3B44':'transparent',color:active?'var(--snow)':'#C2D6DB',font:'400 13px/1 var(--font-sans)',textAlign:'left',width:'100%',opacity:muted?.45:1}},
+      h('span',{style:{width:6,height:6,borderRadius:'50%',background:active?'var(--lime)':'transparent',border:active?'none':'1px solid #2c5159',flexShrink:0}}), h('span',{style:{flex:1}},label),
+      muted?h('span',{style:{fontFamily:'var(--font-mono)',fontSize:8,letterSpacing:'.05em',color:'#7FA6B0',border:'1px solid #2c5159',borderRadius:5,padding:'2px 5px'}},'TBD'):null);
+    const sect=(t)=> h('div',{style:{fontFamily:'var(--font-mono)',fontSize:9.5,letterSpacing:'.08em',textTransform:'uppercase',color:'#7FA6B0',padding:'18px 10px 6px'}},t);
+    return h('aside',{style:{width:236,flexShrink:0,background:'var(--midnight)',color:'var(--snow)',padding:16,display:'flex',flexDirection:'column',gap:2,overflow:'auto'}},
+      h('div',{style:{display:'flex',alignItems:'center',gap:10,padding:'10px 10px 16px'}},
+        h('svg',{width:26,height:14,viewBox:'0 0 30 16',fill:'var(--lime)'}, h('path',{d:'M14.868 15.99V15.995H17.8334V13.2048V13.2011H17.8294L4.14417 0H1.18008V2.79517L14.868 15.99ZM0 15.995H4.48643V11.7661H0V15.995ZM26.7415 15.99V15.995H29.7069V13.2048V13.2011H29.7029L22.8603 6.60055L16.0177 0H13.0536V2.79517L26.7415 15.99Z'})),
+        h('span',{style:{fontSize:18,fontWeight:500,letterSpacing:'-.02em'}},'Middesk')),
+      sect('Workspace'),
+      item('Home',false,()=>{},true), item('Identities', view==='list', ()=>this.setS({view:'list'})), item('Intelligence', view==='intelligence', ()=>this.setS({view:'intelligence'})),
+      sect('Vela Logistics, Inc.'),
+      item('Identity', view==='identity'&&this.state.direction!=='B', ()=>this.setS({view:'identity',direction:'C'})),
+      item('Network', view==='identity'&&this.state.direction==='B', ()=>this.setS({view:'identity',direction:'B'})),
+      h('div',{style:{marginTop:'auto',paddingTop:16,borderTop:'1px solid #173B43',display:'flex',alignItems:'center',gap:10}},
+        h('span',{style:{width:28,height:28,borderRadius:'50%',background:'var(--lime)',color:'var(--midnight)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--font-mono)',fontSize:10}},'DM'),
+        h('div',{style:{display:'flex',flexDirection:'column',lineHeight:1.3}}, h('span',{style:{fontSize:13}},'Dana Melas'), h('span',{style:{fontSize:11,color:'#7FA6B0'}},'Mercury · Onboarding'))));
+  }
+  Topbar(){
+    const h=React.createElement; const self=this; const {view,direction}=this.state;
+    const isIntel = view==='intelligence'; const isList = view==='list';
+    const label = isIntel ? 'Intelligence' : (direction==='B' ? 'Network' : 'Identity');
+    const crumb=(t,onClick,active)=>h(onClick?'button':'span',{onClick:onClick||null,style:{border:0,background:'none',padding:0,fontFamily:'inherit',cursor:onClick?'pointer':'default',fontSize:12,color:active?'var(--midnight)':'var(--midnight-60)'}},t);
+    return h('header',{style:{position:'sticky',top:0,zIndex:5,background:'rgba(227,238,239,.82)',backdropFilter:'blur(8px)',WebkitBackdropFilter:'blur(8px)',borderBottom:'1px solid var(--border)',padding:'13px 28px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:20}},
+      isIntel
+        ? h('div',{style:{display:'flex',alignItems:'center',gap:8,fontSize:12,color:'var(--midnight-60)'}},
+            h('span',null,'Workspace'), h('span',{style:{opacity:.4}},'/'), h('span',{style:{color:'var(--midnight)'}},'Intelligence'))
+        : isList
+        ? h('div',{style:{display:'flex',alignItems:'center',gap:8}}, crumb('Identities',null,true))
+        : h('div',{style:{display:'flex',alignItems:'center',gap:8}},
+            crumb('Identities',()=>self.setS({view:'list'})), h('span',{style:{opacity:.4,fontSize:12,color:'var(--midnight-60)'}},'/'),
+            crumb(self.nameOf,null,true), h('span',{style:{opacity:.4,fontSize:12,color:'var(--midnight-60)'}},'/'),
+            crumb(label,null,true)),
+      (isIntel||isList) ? null : (function(){ var s=self.policyStats?self.policyStats():{flag:0,review:0}; var rec = s.flag? {t:'Manual review',tone:'elev'} : s.review? {t:'Review recommended',tone:'watch'} : {t:'Clear to approve',tone:'clear'}; return h('div',{style:{display:'flex',alignItems:'center',gap:14}},
+        self.mono('Updated Jul 1, 2026',{color:'var(--midnight-40)'}),
+        self.pill(rec.t, rec.tone)); })());
+  }
+
+  /* ---------- shared hero ---------- */
+  identityHero(){
+    const h=React.createElement;
+    return h('div',{style:{background:'var(--midnight)',color:'var(--snow)',borderRadius:18,padding:'26px 30px',display:'flex',justifyContent:'space-between',gap:30,position:'relative',overflow:'hidden'}},
+      h('div',{style:{minWidth:0,flex:1}},
+        this.mono('Identity · Verified',{color:'#7FA6B0'}),
+        h('h1',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:38,letterSpacing:'-.02em',lineHeight:1.02,margin:'8px 0 4px',color:'var(--snow)'}},'Vela Logistics, Inc.'),
+        h('p',{style:{margin:0,color:'#A0C1CB',fontSize:13.5}},'California · Formed Mar 12, 2019 · ~210 employees · Trucking & logistics'),
+        h('div',{style:{display:'flex',flexWrap:'wrap',gap:'16px 32px',marginTop:22,maxWidth:560}},
+          ...this.facts.map(([k,v])=> h('div',{key:k,style:{display:'flex',flexDirection:'column',gap:3}}, this.mono(k,{color:'#7FA6B0'}), h('span',{style:{fontSize:13,color:'var(--snow)',fontFamily:k==='TIN'?'var(--font-mono)':'inherit'}},v))))),
+      h('div',{style:{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:10,flexShrink:0}},
+        h('span',{style:{display:'inline-flex',alignItems:'center',gap:6,padding:'5px 11px',borderRadius:9999,background:'var(--lime)',color:'var(--midnight)',fontFamily:'var(--font-mono)',fontSize:10,letterSpacing:'.05em',textTransform:'uppercase'}}, h('span',{style:{width:6,height:6,borderRadius:'50%',background:'var(--midnight)'}}),'Active'),
+        h('div',{style:{textAlign:'right',marginTop:6}}, this.mono('Network risk',{color:'#7FA6B0'}), h('div',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:30,lineHeight:1,color:'#E8A36b',marginTop:4}},'Elevated')),
+        h('div',{style:{textAlign:'right'}}, this.mono('Last decision',{color:'#7FA6B0'}), h('div',{style:{fontSize:12,color:'#A0C1CB',marginTop:3}},'Pending · manual review'))));
+  }
+
+  /* =====================================================
+     DIRECTION A — LEDGER (time-first)
+  ===================================================== */
+  timeEvent(v,origIdx,isLast){
+    const h=React.createElement; const sel=this.state.timeIdx===origIdx;
+    const wt={Routine:'mute',Review:'low',Watch:'watch',Act:'elev'}[v.weight];
+    const c=this.RISK[wt].c;
+    return h('div',{key:v.v,onClick:()=>this.setS({timeIdx:origIdx}),style:{position:'relative',display:'grid',gridTemplateColumns:'24px 1fr',gap:14,cursor:'pointer',padding:'6px 0'}},
+      h('div',{style:{position:'relative',display:'flex',justifyContent:'center'}},
+        isLast?null:h('div',{style:{position:'absolute',top:8,bottom:-12,left:'50%',width:1,background:'var(--border)',transform:'translateX(-.5px)'}}),
+        h('div',{style:{position:'relative',zIndex:1,width:sel?14:10,height:sel?14:10,borderRadius:'50%',marginTop:5,background:sel?c:'#fff',border:'2px solid '+c,transition:'all .2s var(--ease-power2)'}})),
+      h('div',{style:{paddingBottom:14}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
+          this.mono(v.date), this.pill(v.weight,wt,{fontSize:9})),
+        h('div',{style:{fontSize:15,marginTop:5,fontWeight:sel?500:400}},v.title),
+        sel?h('div',{style:{marginTop:10,animation:'mdFade .25s var(--ease-power2)'}},
+          h('p',{style:{margin:'0 0 12px',fontSize:13,lineHeight:1.5,color:'var(--midnight-80)',maxWidth:560}},v.detail),
+          h('div',{style:{display:'flex',flexDirection:'column',gap:7,marginBottom:v.matters?12:0}},
+            ...v.changes.map((ch,j)=> h('div',{key:j,style:{display:'flex',alignItems:'center',gap:10,fontSize:12.5}},
+              h('span',{style:{minWidth:140,color:'var(--midnight-60)',fontFamily:'var(--font-mono)',fontSize:10,letterSpacing:'.04em',textTransform:'uppercase'}},ch[0]),
+              h('span',{style:{color:'var(--midnight-40)',textDecoration:ch[1]==='—'?'none':'line-through'}},ch[1]),
+              h('span',{style:{color:'var(--midnight-40)'}},'→'),
+              h('span',{style:{color:'var(--midnight)',fontWeight:500}},ch[2])))),
+          v.matters?h('div',{style:{display:'flex',gap:9,alignItems:'flex-start',padding:'10px 12px',borderRadius:10,background:'color-mix(in srgb, '+c+' 8%, #fff)',border:'1px solid color-mix(in srgb, '+c+' 20%, #fff)'}},
+            h('span',{style:{width:6,height:6,borderRadius:'50%',background:c,marginTop:6,flexShrink:0}}),
+            h('div',null, this.mono('Why it matters to you',{color:c,display:'block',marginBottom:3}), h('span',{style:{fontSize:12.5,lineHeight:1.45,color:'var(--midnight-80)'}},v.why))):null
+        ):null));
+  }
+  /* ---------- policy (Insights) ---------- */
+  get STAT(){ return { pass:{c:'var(--risk-clear)',label:'Pass'}, review:{c:'var(--risk-watch)',label:'Review'}, flag:{c:'var(--risk-high)',label:'Flag'}, info:{c:'var(--midnight-60)',label:'Info'} }; }
+  statusOf(t){ return this._statusOf ? this._statusOf(t) : (t==='high'||t==='elev'?'flag':t==='watch'?'review':(t==='clear'||t==='low'?'pass':'info')); }
+  /* ----- time travel: resolve the answer effective at a point in time ----- */
+  parseDate(s){ if(!s) return 0; if(/^\d{2}\.\d{2}\.\d{2}$/.test(s)){ const p=s.split('.').map(Number); return new Date(2000+p[2],p[0]-1,p[1]).getTime(); } const t=Date.parse(s); return isNaN(t)?0:t; }
+  get asOfIdx(){ return this.state.asOf==null ? this.versions.length-1 : this.state.asOf; }
+  get isLive(){ return this.asOfIdx >= this.versions.length-1; }
+  get asOfMs(){ return this.parseDate(this.versions[this.asOfIdx].date); }
+  qEffectiveAt(q, asMs){ if(!q.history||!q.history.length) return q;
+    const tl=[...q.history.map(x=>({a:x.a,tone:x.tone,insight:x.insight,viz:x.viz,date:x.date})), {a:q.a,tone:q.tone,insight:q.insight,viz:q.viz,date:q.asOf||this.versions[this.versions.length-1].date}];
+    tl.sort((x,y)=>this.parseDate(x.date)-this.parseDate(y.date));
+    let eff=tl[0]; for(const e of tl){ if(this.parseDate(e.date)<=asMs) eff=e; }
+    return Object.assign({}, q, {a:eff.a, tone:eff.tone, insight:eff.insight, viz:eff.viz, _asOfDate:eff.date}); }
+  qEffective(q){
+    if(this.activeId!=='vela'){ const ov=this.answers[q.t]; if(ov) return Object.assign({}, q, ov);
+      if(q.tone==='na'||q.tone==='data') return q;
+      return Object.assign({}, q, {a:'Verified', tone:'clear', insight:'Verified against authoritative sources — no exceptions for '+this.nameOf+'.'}); }
+    return this.isLive ? q : this.qEffectiveAt(q, this.asOfMs); }
+  riskAt(idx){ const P=this.state.policy||[];
+    if(this.activeId!=='vela'){ let flag=false,review=false; P.forEach(s=>s.q.forEach(q=>{const st=this.statusOf(this.qEffective(q).tone); if(st==='flag')flag=true; else if(st==='review')review=true;})); return flag?'elev':review?'watch':'clear'; }
+    const asMs=this.parseDate(this.versions[idx].date); let flag=false,review=false;
+    P.forEach(s=>s.q.forEach(q=>{const st=this.statusOf(this.qEffectiveAt(q,asMs).tone); if(st==='flag')flag=true; else if(st==='review')review=true;})); return flag?'elev':review?'watch':'clear'; }
+  secWorst(sec){ let s='pass'; sec.q.forEach(q=>{const st=this.statusOf(this.qEffective(q).tone); if(st==='flag')s='flag'; else if(st==='review'&&s!=='flag')s='review';}); return s; }
+  policyStats(){ const P=this.state.policy||[]; let pass=0,review=0,flag=0,total=0; P.forEach(sec=>sec.q.forEach(q=>{const st=this.statusOf(this.qEffective(q).tone); if(st==='info')return; total++; if(st==='pass')pass++; else if(st==='review')review++; else flag++;})); return {pass,review,flag,total,all:P.reduce((n,s)=>n+s.q.length,0)}; }
+  policyAttention(){ const P=this.state.policy||[]; const out=[]; P.forEach(sec=>sec.q.forEach((q,i)=>{const st=this.statusOf(this.qEffective(q).tone); if(st==='review'||st==='flag') out.push({sec,q:this.qEffective(q),i,st});})); return out.sort((a,b)=> (a.st==='flag'?0:1)-(b.st==='flag'?0:1)); }
+
+  ansPill(q){ const h=React.createElement;
+    if(q.tone==='data') return h('span',{style:{display:'inline-flex',alignItems:'center',padding:'4px 10px',borderRadius:9999,background:'var(--fog)',color:'var(--midnight)',border:'1px solid var(--border)',fontSize:11.5,fontWeight:500,whiteSpace:'nowrap'}},q.a);
+    if(q.tone==='na') return h('span',{style:{display:'inline-flex',alignItems:'center',padding:'4px 10px',borderRadius:9999,background:'transparent',color:'var(--midnight-40)',border:'1px dashed var(--midnight-20)',fontSize:11,whiteSpace:'nowrap'}},q.a);
+    return this.pill(q.a,q.tone); }
+  pTone(t){ return (t==='data'||t==='na')?'mute':t; }
+  qVersionThread(q,bare){ const h=React.createElement; const hist=q.history; if(!hist||!hist.length) return null;
+    const latest=q.asOf||this.versions[this.versions.length-1].date;
+    const activeDate = this.isLive ? latest : this.qEffectiveAt(q,this.asOfMs)._asOfDate;
+    const cur={date:latest, a:q.a, tone:q.tone, insight:q.insight};
+    const rows=[cur, ...hist.slice().reverse()];
+    return h('div',{style:bare?null:{borderTop:'1px dashed var(--border)',paddingTop:12,marginTop:2}},
+      bare?null:h('div',{style:{display:'flex',alignItems:'center',gap:9,marginBottom:11}},
+        this.mono('Answer history',{color:'var(--midnight-60)'}),
+        this.pill((hist.length+1)+' versions','mute',{fontSize:9})),
+      h('div',{style:{display:'flex',flexDirection:'column'}}, ...rows.map((r,i)=>{ const rc=this.STAT[this.statusOf(r.tone)].c; const lastr=i===rows.length-1; const active=r.date===activeDate;
+        return h('div',{key:i,style:{display:'grid',gridTemplateColumns:'14px 1fr',gap:11,opacity:active?1:.62}},
+          h('div',{style:{display:'flex',flexDirection:'column',alignItems:'center'}},
+            h('span',{style:{width:9,height:9,borderRadius:'50%',marginTop:4,background:active?rc:'#fff',border:'2px solid '+rc,flexShrink:0}}),
+            lastr?null:h('div',{style:{flex:1,width:1,background:'var(--border)',marginTop:4}})),
+          h('div',{style:{paddingBottom:lastr?0:13}},
+            h('div',{style:{display:'flex',alignItems:'center',gap:9,flexWrap:'wrap'}}, this.mono(r.date), active?this.mono(this.isLive?'Current':'Viewing',{color:rc}):null, this.pill(r.a,this.pTone(r.tone),{fontSize:9})),
+            h('div',{style:{fontSize:12,lineHeight:1.45,color:'var(--midnight-80)',marginTop:5}}, r.insight))); })));
+  }
+
+  qRow(sec,q,i,last){ const h=React.createElement; const eff=this.qEffective(q); const st=this.statusOf(eff.tone); const sc=this.STAT[st].c;
+    const key=sec.id+':'+i; const open=this.state.openQ===key; const force=st==='flag'||st==='review';
+    const show=open||force;
+    return h('div',{key:i,style:{borderBottom:last?'none':'1px solid var(--border)',borderLeft:'2px solid '+(force?sc:'transparent'),paddingLeft:force?12:14}},
+      h('div',{onClick:()=>this.setState({openQ:open?null:key}),style:{display:'flex',alignItems:'center',gap:14,padding:'12px 16px 12px 0',cursor:'pointer'}},
+        h('span',{style:{flex:1,fontSize:13,color:'var(--midnight-80)',lineHeight:1.4}},q.t),
+        q.history?h('span',{title:'Answer changed over time',style:{display:'inline-flex',alignItems:'center',gap:4,fontFamily:'var(--font-mono)',fontSize:8.5,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--midnight-40)'}},'↻ '+(q.history.length+1)):null,
+        this.ansPill(eff),
+        h('span',{style:{color:'var(--midnight-40)',fontSize:11,width:12,textAlign:'center',transform:open?'rotate(180deg)':'none',transition:'transform .2s'}},'⌄')),
+      show?this.qDetail(sec,q,key,eff,sc,force):null);
+  }
+
+  attrSource(k){ const s=(k||'').toLowerCase();
+    if(/sos|secretary of state|domestic|foreign|registered|good standing|status|entity type|officers/.test(s)) return 'CA / TX SoS';
+    if(/irs|tin|tax/.test(s)) return 'IRS';
+    if(/address|deliverable|virtual|cmra/.test(s)) return 'USPS · Maps';
+    if(/watchlist|sanction|ofac/.test(s)) return 'Sanctions screening';
+    if(/naics|industry|category/.test(s)) return 'NAICS · web';
+    if(/ucc|secured|lien|lender|collateral/.test(s)) return 'UCC filings';
+    if(/owner|ubo|control|beneficial|nguyen|meridian|structure|hops?|undisclosed/.test(s)) return 'BOI · SoS · network';
+    if(/network|connected|entities|cluster|elevated|watch|clear|dissolved/.test(s)) return 'Middesk network';
+    if(/dob|birth|id |ssn|verification|fraud|sentilink|sigma|people|matched/.test(s)) return 'Identity screening';
+    if(/submitted|dba|fbn|application/.test(s)) return 'Application';
+    return 'Middesk';
+  }
+  statusFlagsViz(v,sc,force){ const h=React.createElement;
+    const mat=v.rows.filter(r=>r.severity==='material').length;
+    const neutralOnly=v.rows.filter(r=>r.severity!=='material'&&r.flags.length).length;
+    const clean=v.rows.filter(r=>!r.flags.length).length;
+    const row=(r,i)=>{ const nMat=r.flags.filter(f=>f.kind==='material').length; const nNeu=r.flags.filter(f=>f.kind!=='material').length;
+      return h('div',{key:i,style:{padding:'12px 14px',borderTop:i===0?'none':'1px solid var(--border)',background:r.severity==='material'?'color-mix(in srgb, var(--risk-high) 5%, transparent)':'transparent'}},
+      h('div',{style:{display:'flex',alignItems:'flex-start',gap:12}},
+        h('div',{style:{display:'flex',alignItems:'flex-start',gap:10,flex:1,minWidth:0}},
+          h('div',{style:{minWidth:0}},
+            h('div',{style:{fontSize:13,fontWeight:600,color:'var(--midnight)'}},r.name),
+            h('div',{style:{fontSize:11.5,color:'var(--midnight-60)',marginTop:2}},r.rel+' · '+r.reg))),
+        h('div',{style:{display:'flex',alignItems:'center',gap:6,flexShrink:0}},
+          nMat?this.pill(nMat+' flag'+(nMat===1?'':'s'),'high',{fontSize:9}):null,
+          nNeu?this.pill(nNeu+' neutral','mute',{fontSize:9}):null,
+          r.flags.length?null:this.pill('No flags','clear',{fontSize:9}))),
+      r.flags.length?h('div',{style:{display:'flex',flexDirection:'column',gap:6,marginTop:9}}, ...r.flags.map((f,j)=>
+        h('div',{key:j,style:{display:'flex',alignItems:'flex-start',gap:8}},
+          h('div',{style:{flex:1,minWidth:0}},
+            h('div',{style:{fontSize:12,fontWeight:500,color:f.kind==='material'?'var(--midnight)':'var(--midnight-60)'}},f.label),
+            h('div',{style:{fontSize:11,color:'var(--midnight-60)',lineHeight:1.45,marginTop:1}},f.note)),
+          this.pill(f.kind==='material'?'Flag':'Neutral', f.kind==='material'?'high':'mute',{fontSize:9})))):null); };
+    const stat=(n,label,col)=>h('div',{style:{flex:1}}, h('div',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:26,lineHeight:1,color:col}},n), h('div',{style:{fontSize:10.5,color:'var(--midnight-60)',marginTop:4,lineHeight:1.3}},label));
+    return h('div',{style:{border:'1px solid var(--border)',borderRadius:12,background:'#fff',alignSelf:'stretch',overflow:'hidden'}},
+      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'12px 14px',borderBottom:'1px solid var(--border)',background:'var(--snow)'}}, this.mono('Adverse status',{color:'var(--midnight-60)'}), h('span',{style:{fontSize:11,color:'var(--midnight-60)'}}, h('span',{style:{fontFamily:'var(--font-mono)',fontSize:8.5,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--midnight-40)',marginRight:6}},'Applied in'), v.jurisdiction)),
+      v.rows.length?h('div',{style:{display:'flex',gap:14,padding:'13px 14px',borderBottom:'1px solid var(--border)'}}, stat(mat,'Material flags','var(--risk-high)'), stat(neutralOnly,'Neutral lifecycle only','var(--midnight-40)'), stat(clean,'No flags','var(--midnight)')):null,
+      v.rows.length?h('div',null, ...v.rows.map(row)):h('div',{style:{padding:'18px 14px',fontSize:12,color:'var(--midnight-60)'}},'No connected entities to screen at this point in time.'));
+  }
+  mediaViz(v,sc,force){ const h=React.createElement;
+    const RES={true_positive:{lab:'True positive',tone:'high'},needs_review:{lab:'Needs review',tone:'watch'},false_positive:{lab:'False positive',tone:'mute'}};
+    const quoteEl=(m)=>{ const h=React.createElement; if(!m.match||m.quote.indexOf(m.match)<0) return ['“'+m.quote+'”'];
+      const parts=m.quote.split(m.match);
+      const out=['“'+parts[0]]; parts.slice(1).forEach((p,j)=>{ out.push(h('mark',{key:j,style:{background:'color-mix(in srgb, var(--risk-high) 18%, #fff)',color:'var(--midnight)',fontWeight:600,fontStyle:'normal',padding:'0 2px',borderRadius:3}},m.match)); out.push(p); });
+      out[out.length-1]=out[out.length-1]+'”'; return out; };
+    const item=(m,i)=>h('a',{key:i,href:m.url,target:'_blank',rel:'noopener',style:{display:'block',textDecoration:'none',padding:'13px 14px',borderTop:i===0?'none':'1px solid var(--border)'}},
+      h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:6}},
+        h('span',{style:{fontFamily:'var(--font-mono)',fontSize:9,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--midnight)',fontWeight:600}},m.outlet),
+        h('span',{style:{fontFamily:'var(--font-mono)',fontSize:9,letterSpacing:'.04em',color:'var(--midnight-40)'}},m.date),
+        h('span',{style:{marginLeft:'auto'}}), this.pill(RES[m.resolution].lab, RES[m.resolution].tone,{fontSize:9})),
+      h('div',{style:{display:'flex',gap:9,alignItems:'flex-start'}},
+        h('div',{style:{flex:1,minWidth:0}},
+          h('div',{style:{fontSize:13,fontWeight:600,color:'var(--midnight)',lineHeight:1.35,marginBottom:5}}, m.title, h('span',{style:{color:'var(--midnight-40)',marginLeft:6,fontSize:11,fontWeight:400}},'↗')),
+          h('div',{style:{fontSize:12,lineHeight:1.5,color:'var(--midnight-80)',fontStyle:'italic',paddingLeft:9,borderLeft:'2px solid var(--border)'}}, ...quoteEl(m)),
+          m.match?h('div',{style:{display:'flex',alignItems:'center',gap:6,marginTop:8,fontSize:11,color:'var(--midnight-60)'}}, h('span',{style:{fontFamily:'var(--font-mono)',fontSize:8.5,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--midnight-40)'}},'Linked via'), h('span',{style:{width:8,height:8,borderRadius:'50%',background:'var(--risk-high)',flexShrink:0}}), h('span',{style:{fontWeight:600,color:'var(--midnight)'}},m.match), m.matchType?h('span',{style:{color:'var(--midnight-40)'}},'· '+m.matchType):null):null,
+          h('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginTop:9,alignItems:'center'}},
+            ...m.risks.map(r=>h('span',{key:r,style:{fontFamily:'var(--font-mono)',fontSize:8.5,letterSpacing:'.03em',textTransform:'uppercase',color:'var(--midnight-60)',background:'#fff',border:'1px solid var(--border)',padding:'2px 7px',borderRadius:5}},r)),
+            h('span',{style:{fontFamily:'var(--font-mono)',fontSize:8.5,letterSpacing:'.03em',textTransform:'uppercase',color:'var(--risk-high)'}},'● '+m.sentiment),
+            h('span',{style:{marginLeft:'auto',fontFamily:'var(--font-mono)',fontSize:8.5,letterSpacing:'.03em',textTransform:'uppercase',color:'var(--midnight-40)'}},'Match '+m.score)))));
+    return h('div',{style:{border:'1px solid var(--border)',borderRadius:12,background:'#fff',alignSelf:'stretch',overflow:'hidden'}},
+      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'12px 14px',borderBottom:'1px solid var(--border)',background:'var(--snow)'}}, this.mono('Adverse media',{color:'var(--midnight-60)'}), h('span',{style:{fontSize:11,color:'var(--midnight-60)'}}, v.items.length+' article'+(v.items.length===1?'':'s')+' shown')),
+      ...v.items.map(item));
+  }
+  resolutionViz(v,sc,force){ const h=React.createElement;
+    const COL={fp:'var(--midnight-20)', tp:'var(--risk-high)', review:'var(--risk-watch)'};
+    const stripe='repeating-linear-gradient(45deg,var(--fog),var(--fog) 5px,#fff 5px,#fff 10px)';
+    const bar=h('div',{style:{display:'flex',height:26,borderRadius:7,overflow:'hidden',border:'1px solid var(--border)'}}, ...v.bands.map((b,i)=>
+      h('div',{key:i,title:b.label+' · '+b.count,style:{flex:b.count,background:b.status==='fp'?stripe:COL[b.status],display:'flex',alignItems:'center',justifyContent:'center',borderRight:i<v.bands.length-1?'1px solid #fff':'none'}},
+        h('span',{style:{fontFamily:'var(--font-mono)',fontSize:9.5,fontWeight:600,color:b.status==='fp'?'var(--midnight-60)':'#fff'}},b.count))));
+    const row=(b,i)=>h('div',{key:i,style:{display:'flex',alignItems:'flex-start',gap:12,padding:'11px 0',borderTop:i===0?'none':'1px solid var(--border)'}},
+      h('span',{style:{width:9,height:9,borderRadius:'50%',flexShrink:0,marginTop:5,background:b.status==='fp'?'var(--midnight-20)':COL[b.status]}}),
+      h('div',{style:{flex:1,minWidth:0}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, h('span',{style:{fontSize:13,fontWeight:600,color:b.status==='fp'?'var(--midnight-60)':'var(--midnight)'}},b.label), b.band?h('span',{style:{fontFamily:'var(--font-mono)',fontSize:8.5,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--midnight-40)',background:'#fff',border:'1px solid var(--border)',padding:'2px 6px',borderRadius:5}},'Score '+b.band):null),
+        h('div',{style:{fontSize:11.5,color:'var(--midnight-60)',marginTop:2,lineHeight:1.45}},b.note)),
+      h('div',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:27,color:b.status==='fp'?'var(--midnight-40)':'var(--midnight)',lineHeight:1}},b.count));
+    return h('div',{style:{border:'1px solid var(--border)',borderRadius:12,background:'#fff',padding:'14px 16px',alignSelf:'stretch'}},
+      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginBottom:11}}, this.mono('Match resolution',{color:'var(--midnight-60)'}), h('span',{style:{fontSize:11,color:'var(--midnight-60)'}}, h('span',{style:{fontFamily:'var(--font-mono)',fontSize:8.5,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--midnight-40)',marginRight:6}},'Screened'), v.total+' candidates')),
+      bar,
+      h('div',{style:{marginTop:6}}, ...v.bands.map(row)));
+  }
+  uboViz(v,sc,force){ const h=React.createElement;
+    const COL={disclosed:'#2D6A6A', undisclosed:'var(--risk-high)', unaccounted:'var(--midnight-20)'};
+    const stripe='repeating-linear-gradient(45deg,var(--fog),var(--fog) 5px,#fff 5px,#fff 10px)';
+    const segs=[...v.owners.map(o=>({pct:o.pct,status:o.status,name:o.name})), ...(v.gap?[{pct:v.gap.pct,status:'unaccounted',name:v.gap.label}]:[])];
+    const bar=h('div',{style:{display:'flex',height:26,borderRadius:7,overflow:'hidden',border:'1px solid var(--border)'}}, ...segs.map((s,i)=>
+      h('div',{key:i,title:s.name+' · '+s.pct+'%',style:{width:s.pct+'%',minWidth:s.pct<6?18:0,background:s.status==='unaccounted'?stripe:COL[s.status],display:'flex',alignItems:'center',justifyContent:'center',borderRight:i<segs.length-1?'1px solid #fff':'none'}},
+        h('span',{style:{fontFamily:'var(--font-mono)',fontSize:9.5,fontWeight:600,color:s.status==='unaccounted'?'var(--midnight-60)':'#fff'}}, s.pct>=9?s.pct+'%':''))));
+    const ownerRow=(o,i,first)=>h('div',{key:'o'+i,style:{display:'flex',alignItems:'flex-start',gap:12,padding:'11px 10px',margin:'0 -10px',borderRadius:o.status==='undisclosed'?8:0,borderTop:first?'none':'1px solid var(--border)',background:o.status==='undisclosed'?'color-mix(in srgb, var(--risk-high) 7%, #fff)':'transparent'}},
+      h('div',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:27,color:o.status==='unaccounted'?'var(--midnight-40)':'var(--midnight)',lineHeight:1,width:56,flexShrink:0}}, o.pct+'%'),
+      h('div',{style:{flex:1,minWidth:0}},
+        h('div',{style:{fontSize:13,fontWeight:600,color:o.status==='unaccounted'?'var(--midnight-60)':'var(--midnight)'}},o.name),
+        h('div',{style:{fontSize:11.5,color:'var(--midnight-60)',marginTop:2,lineHeight:1.45}}, (o.kind==='entity'?'Business entity':o.kind==='individual'?'Individual':'')+(o.kind&&o.note?' · ':'')+(o.note||''))),
+      h('div',{style:{display:'flex',alignItems:'flex-start',justifyContent:'flex-end',gap:10,flexShrink:0}},
+        this.pill(o.status==='undisclosed'?'Undisclosed':o.status==='unaccounted'?'No owner named':'Disclosed', o.status==='undisclosed'?'high':o.status==='unaccounted'?'mute':'clear',{fontSize:9})));
+    const rows=v.owners.map((o,i)=>ownerRow(o,i,i===0));
+    if(v.gap) rows.push(ownerRow({name:v.gap.label,pct:v.gap.pct,kind:'entity',status:'unaccounted',note:v.gap.note}, 'gap', false));
+    return h('div',{style:{border:'1px solid var(--border)',borderRadius:12,background:'#fff',padding:'14px 16px',alignSelf:'stretch'}},
+      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginBottom:11}}, this.mono('Beneficial ownership',{color:'var(--midnight-60)'}), v.applicant?h('span',{style:{fontSize:11,color:'var(--midnight-60)',textAlign:'right'}}, h('span',{style:{fontFamily:'var(--font-mono)',fontSize:8.5,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--midnight-40)',marginRight:6}},'On the application'), v.applicant):null),
+      bar,
+      h('div',{style:{marginTop:6}}, ...rows));
+  }
+  qDetail(sec,q,key,eff,sc,force){ const h=React.createElement;
+    const tab=(this.state.qTab||{})[key] || 'attrs';
+    const hasHist=!!(q.history&&q.history.length);
+    const ra=q.attrs||sec.relAttrs||[];
+    const setTab=(v)=>this.setState({qTab:{...(this.state.qTab||{}),[key]:v}});
+    const seg=(label,val)=>h('button',{onClick:()=>setTab(val),style:{padding:'5px 10px',border:0,borderRadius:7,cursor:'pointer',fontFamily:'inherit',fontSize:11,background:tab===val?'#fff':'transparent',color:tab===val?'var(--midnight)':'var(--midnight-60)',boxShadow:tab===val?'0 1px 2px rgba(11,49,57,.12)':'none',transition:'all .15s',whiteSpace:'nowrap'}},label);
+    const insight=h('div',{style:{display:'flex',gap:9,alignItems:'flex-start',padding:'14px 16px'}},
+      h('span',{style:{width:6,height:6,borderRadius:'50%',background:sc,marginTop:6,flexShrink:0}}),
+      h('div',{style:{flex:1,minWidth:0}},
+        this.mono('Insight',{color:'var(--midnight-60)',display:'block',marginBottom:4}),
+        h('div',{style:{fontSize:13,lineHeight:1.55,color:'var(--midnight-80)'}},eff.insight),
+        h('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginTop:10,alignItems:'center'}}, this.mono('Sources',{color:'var(--midnight-40)'}), ...(q.ev||[]).map(e=>h('span',{key:e,style:{fontFamily:'var(--font-mono)',fontSize:9,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--midnight-60)',background:'#fff',border:'1px solid var(--border)',padding:'3px 7px',borderRadius:6}},e)))));
+    const attrsView=ra.length?h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(min(210px, 100%), 1fr))',gap:7}}, ...ra.map((a,j)=>
+      h('div',{key:j,style:{display:'flex',flexDirection:'column',gap:3,padding:'7px 11px',borderRadius:8,background:'#fff',border:'1px solid var(--border)',minWidth:0,gridColumn:(ra.length%2===1&&j===ra.length-1)?'1 / -1':'auto'}},
+        h('div',{style:{display:'flex',flexDirection:'column',gap:2}},
+          h('span',{style:{fontFamily:'var(--font-mono)',fontSize:8.5,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--midnight-60)'}},a.k),
+          h('span',{style:{fontSize:12,color:'var(--midnight)',fontWeight:500}},a.v)),
+        h('div',{style:{display:'flex',flexWrap:'wrap',gap:'3px 8px'}}, ...[].concat(a.s||this.attrSource(a.k)).map((src,si)=>h('span',{key:si,style:{display:'inline-flex',alignItems:'center',gap:4,fontFamily:'var(--font-mono)',fontSize:8,letterSpacing:'.03em',textTransform:'uppercase',color:'var(--midnight-40)'}}, h('span',{style:{width:4,height:4,borderRadius:'50%',background:'var(--midnight-20)'}}), src))))))
+      :h('div',{style:{fontSize:12,color:'var(--midnight-60)',lineHeight:1.5}},'No specific data attributes recorded for this question.');
+    const detailBody=(tab==='history'&&hasHist)?this.qVersionThread(q,true):attrsView;
+    const histSeg=hasHist
+      ? seg('History · '+(q.history.length+1),'history')
+      : h('span',{style:{padding:'5px 10px',borderRadius:7,fontFamily:'inherit',fontSize:11,color:'var(--midnight-40)',whiteSpace:'nowrap',cursor:'default'}},'No history');
+    const card=h('div',{style:{border:'1px solid var(--border)',borderRadius:12,overflow:'hidden',background:'#fff'}},
+      insight,
+      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,rowGap:6,flexWrap:'wrap',padding:'9px 14px',borderTop:'1px solid var(--border)',background:'var(--snow)'}},
+        h('div',{style:{display:'inline-flex',background:'var(--fog)',border:'1px solid var(--border)',borderRadius:9,padding:3,gap:2}}, seg('Attributes','attrs'), histSeg),
+        this.mono((tab==='history'&&hasHist)?'Answer over time':(ra.length+' attribute'+(ra.length===1?'':'s')),{color:'var(--midnight-40)'})),
+      h('div',{style:{padding:'14px 16px'}}, detailBody));
+    const twoCol='repeat(auto-fit, minmax(340px, 1fr))';
+    const wrap=(eff.viz&&eff.viz.type==='ubo')
+      ? h('div',{style:{display:'grid',gridTemplateColumns:twoCol,gap:14,alignItems:'start'}}, this.uboViz(eff.viz,sc,force), card)
+      : (eff.viz&&eff.viz.type==='resolution')
+      ? h('div',{style:{display:'grid',gridTemplateColumns:twoCol,gap:14,alignItems:'start'}}, this.resolutionViz(eff.viz,sc,force), card)
+      : (eff.viz&&eff.viz.type==='media')
+      ? h('div',{style:{display:'grid',gridTemplateColumns:twoCol,gap:14,alignItems:'start'}}, this.mediaViz(eff.viz,sc,force), card)
+      : (eff.viz&&eff.viz.type==='statusflags')
+      ? h('div',{style:{display:'grid',gridTemplateColumns:twoCol,gap:14,alignItems:'start'}}, this.statusFlagsViz(eff.viz,sc,force), card)
+      : card;
+    return h('div',{style:{padding:'0 16px 16px 0',animation:'mdFade .2s var(--ease-power2)'}}, wrap);
+  }
+
+  relAttrsStrip(sec){ const h=React.createElement; const ra=sec.relAttrs||[]; if(!ra.length) return null;
+    return h('div',{style:{margin:'12px 0 6px',padding:'13px 15px',borderRadius:12,background:'var(--snow)',border:'1px solid var(--border)'}},
+      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginBottom:11}},
+        this.mono('Evaluated against — relevant data attributes',{color:'var(--midnight-60)'}),
+        h('button',{onClick:()=>this.setState({attrsOpen:true}),style:{background:'none',border:0,color:'var(--midnight-60)',cursor:'pointer',fontFamily:'var(--font-mono)',fontSize:9.5,letterSpacing:'.04em',textTransform:'uppercase'}},'All attributes →')),
+      h('div',{style:{display:'flex',flexWrap:'wrap',gap:8}}, ...ra.map((a,i)=>
+        h('div',{key:i,style:{display:'inline-flex',alignItems:'baseline',gap:7,padding:'6px 11px',borderRadius:9,background:'#fff',border:'1px solid var(--border)'}},
+          h('span',{style:{fontFamily:'var(--font-mono)',fontSize:9,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--midnight-60)'}},a.k),
+          h('span',{style:{fontSize:12.5,color:'var(--midnight)',fontWeight:500}},a.v)))));
+  }
+  hasFindings(sec){ return sec.q.some(q=>{const s=this.statusOf(this.qEffective(q).tone);return s==='review'||s==='flag';}); }
+  get polF(){ return this.state.polFilter || 'all'; }
+  polMatch(q,f){ const s=this.statusOf(this.qEffective(q).tone); f=f||this.polF; if(f==='attn')return s==='review'||s==='flag'; if(f==='all')return true; return s===f; }
+  secMatches(sec,f){ return sec.q.some(q=>this.polMatch(q,f)); }
+  isSecOpen(sec){ const o=this.state.secOpen||{}; if(sec.id in o) return o[sec.id]; const f=this.polF; return f==='all' ? this.hasFindings(sec) : this.secMatches(sec,f); }
+  toggleSec(sec){ const o=this.state.secOpen||{}; this.setState({secOpen:{...o,[sec.id]:!this.isSecOpen(sec)}}); }
+  secRow(sec){ const h=React.createElement; const worst=this.secWorst(sec); const wc=this.STAT[worst].c; const open=this.isSecOpen(sec);
+    const rev=sec.q.filter(q=>this.statusOf(this.qEffective(q).tone)==='review').length; const flg=sec.q.filter(q=>this.statusOf(this.qEffective(q).tone)==='flag').length;
+    const clr=sec.q.filter(q=>this.statusOf(this.qEffective(q).tone)==='pass').length;
+    const sevRank=(q)=>{const s=this.statusOf(this.qEffective(q).tone);return s==='flag'?0:s==='review'?1:2;};
+    const isFilter=this.polF!=='all'; const showAll=(this.state.secAll||{})[sec.id];
+    const full=sec.q.map((q,i)=>[q,i]).sort((a,b)=>sevRank(a[0])-sevRank(b[0]));
+    const matched=full.filter(([q])=>this.polMatch(q));
+    const rows=(!isFilter||showAll)?full:matched;
+    const hidden=full.length-matched.length;
+    const toggleAll=()=>{ const o=this.state.secAll||{}; this.setState({secAll:{...o,[sec.id]:!showAll}}); };
+    return h('div',{key:sec.id,id:'pol-'+sec.id,style:{borderBottom:'1px solid var(--border)'}},
+      h('button',{onClick:()=>this.toggleSec(sec),style:{display:'flex',alignItems:'center',gap:14,width:'100%',padding:'16px 22px',border:0,background:open?'var(--snow)':'#fff',cursor:'pointer',textAlign:'left',fontFamily:'inherit'}},
+        h('span',{style:{width:9,height:9,borderRadius:'50%',background:wc,flexShrink:0}}),
+        h('div',{style:{flex:1,minWidth:0}}, h('div',{style:{fontSize:14,fontWeight:500,color:'var(--midnight)'}},sec.name), this.mono(sec.attr+' · '+sec.q.length+' questions')),
+        flg?this.pill(flg+' flag','high',{fontSize:9}):null,
+        rev?this.pill(rev+' review','watch',{fontSize:9}):null,
+        clr?this.pill(clr+' clear','clear',{fontSize:9}):null,
+        h('span',{style:{color:'var(--midnight-40)',fontSize:13,marginLeft:4,transform:open?'rotate(180deg)':'none',transition:'transform .2s'}},'⌄')),
+      sec.summary?h('div',{style:{padding:'0 22px 16px 22px',background:open?'var(--snow)':'#fff'}}, h('div',{style:{padding:'14px 16px',background:'color-mix(in srgb, '+wc+' 5%, #fff)',borderRadius:12,border:'1px solid color-mix(in srgb, '+wc+' 22%, #fff)'}}, this.mono('Summary',{display:'block',marginBottom:5,color:wc}), h('p',{style:{margin:0,fontSize:13,lineHeight:1.6,color:'var(--midnight-80)',textWrap:'pretty'}},sec.summary))):null,
+      open?h('div',{style:{padding:'2px 22px 8px',animation:'mdFade .2s var(--ease-power2)'}}, ...rows.map(([q,i],k)=>this.qRow(sec,q,i,k===rows.length-1)),
+        (isFilter&&hidden>0)?h('button',{onClick:toggleAll,style:{display:'inline-flex',alignItems:'center',gap:6,marginTop:6,padding:'7px 12px',border:'1px solid var(--border)',borderRadius:8,background:'#fff',cursor:'pointer',fontFamily:'var(--font-mono)',fontSize:9.5,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--midnight-60)'}}, showAll?('Show only matches'):('Show all '+full.length+' checks'), h('span',{style:{fontSize:11}}, showAll?'−':'+')):null):null);
+  }
+
+  policyHeader(){ const h=React.createElement; const s=this.policyStats();
+    const rec = s.flag? {t:'Manual review',tone:'elev'} : s.review? {t:'Review recommended',tone:'watch'} : {t:'Clear to approve',tone:'clear'};
+    const stat=(n,label,c)=> h('div',null, h('div',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:38,lineHeight:1,color:c}},n), this.mono(label,{display:'block',marginTop:3}));
+    return h('div',{style:{background:'#fff',border:'1px solid var(--border)',borderRadius:18,padding:'24px 28px',display:'flex',justifyContent:'space-between',gap:30,flexWrap:'wrap',alignItems:'center'}},
+      h('div',null,
+        h('h2',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:26,letterSpacing:'-.01em',margin:'0 0 6px'}},'Insights'),
+        h('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}, this.pill(rec.t,rec.tone))),
+      h('div',{style:{display:'flex',gap:32}}, stat(s.pass,'Pass','var(--risk-clear)'), stat(s.review,'Review','var(--risk-watch)'), stat(s.flag,'Flag','var(--risk-high)')));
+  }
+
+  scrollToSection(id){ setTimeout(()=>{ const sc=document.getElementById('mid-scroll'); const el=document.getElementById('pol-'+id); if(sc&&el){ const r=el.getBoundingClientRect(), sr=sc.getBoundingClientRect(); sc.scrollTo({top: sc.scrollTop + (r.top - sr.top) - 18, behavior:'smooth'}); } }, 90); }
+
+  attentionPanel(){ const h=React.createElement; const items=this.policyAttention();
+    const groups={}, order=[];
+    items.forEach(it=>{ if(!groups[it.sec.id]){ groups[it.sec.id]={sec:it.sec,list:[]}; order.push(it.sec.id); } groups[it.sec.id].list.push(it); });
+    return this.panel({}, this.panelHead('Needs your attention', this.mono(items.length+' findings · '+order.length+' of '+this.state.policy.length+' sections')),
+      h('div',{style:{padding:'4px 0'}}, ...order.map((sid,gi)=>{ const g=groups[sid]; const worst=this.secWorst(g.sec); const wc=this.STAT[worst].c;
+        return h('div',{key:sid,style:{borderBottom:gi<order.length-1?'1px solid var(--border)':'none',padding:'4px 0 10px'}},
+          h('button',{onClick:()=>{ this.setState({openSec:g.sec.id,openQ:null,attnOnly:false}); this.scrollToSection(g.sec.id); },style:{display:'flex',alignItems:'center',gap:12,width:'100%',padding:'12px 22px 6px',border:0,background:'transparent',cursor:'pointer',textAlign:'left',fontFamily:'inherit'}},
+            h('span',{style:{width:8,height:8,borderRadius:'50%',background:wc,flexShrink:0}}),
+            h('span',{style:{fontSize:13.5,fontWeight:500,flex:1,color:'var(--midnight)'}},g.sec.name),
+            this.mono(g.list.length+(g.list.length>1?' findings':' finding'),{color:'var(--midnight-60)'}),
+            h('span',{style:{color:'var(--midnight-40)',fontSize:11.5}},'View in policy →')),
+          h('div',{style:{padding:'2px 22px 0 42px',display:'flex',flexDirection:'column',gap:7}}, ...g.list.map((it,k)=>{ const sc=this.STAT[it.st].c;
+            return h('button',{key:k,onClick:()=>{ this.setState({openSec:g.sec.id,openQ:g.sec.id+':'+it.i,attnOnly:false}); this.scrollToSection(g.sec.id); },style:{display:'flex',alignItems:'center',gap:11,width:'100%',padding:'9px 12px',border:'1px solid var(--border)',borderLeft:'2px solid '+sc,borderRadius:9,background:'#fff',cursor:'pointer',textAlign:'left',fontFamily:'inherit'}},
+              h('span',{style:{flex:1,minWidth:0,fontSize:12.5,color:'var(--midnight-80)',lineHeight:1.35}},it.q.t),
+              this.ansPill(it.q)); }))); })));
+  }
+
+  policyExperience(){ const h=React.createElement;
+    if(!this.state.policy) return h('div',{style:{padding:'60px',textAlign:'center',color:'var(--midnight-60)',fontSize:14}},'Loading policy…');
+    const P=this.state.policy; const f=this.polF; const findingsSecs=P.filter(s=>this.hasFindings(s)); const cleanSecs=P.filter(s=>!this.hasFindings(s));
+    const s=this.policyStats();
+    const rec = s.flag? {t:'Manual review',tone:'elev'} : s.review? {t:'Review recommended',tone:'watch'} : {t:'Clear to approve',tone:'clear'};
+    const stat=(n,label,c)=> h('div',null, h('div',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:38,lineHeight:1,color:c}},n), this.mono(label,{display:'block',marginTop:3}));
+    const tg=(label,val,c)=>h('button',{onClick:()=>this.setState({polFilter:val}),style:{display:'inline-flex',alignItems:'center',gap:6,padding:'5px 11px',borderRadius:7,border:'1px solid var(--border)',background:f===val?'var(--midnight)':'#fff',color:f===val?'var(--snow)':'var(--midnight-60)',cursor:'pointer',fontSize:11,fontFamily:'inherit'}}, c?h('span',{style:{width:6,height:6,borderRadius:'50%',background:f===val?c:c}}):null, label);
+    const toggle=h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}}, tg('All '+P.reduce((n,s)=>n+s.q.length,0),'all'), tg('Pass','pass','var(--risk-clear)'), tg('Review','review','var(--risk-watch)'), tg('Flag','flag','var(--risk-high)'));
+    return this.panel({},
+      // merged header
+      h('div',{style:{padding:'24px 28px 22px',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between',gap:30,flexWrap:'wrap',alignItems:'center'}},
+        h('div',null,
+          h('h2',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:26,letterSpacing:'-.01em',margin:0}},'Insights')),
+        h('div',{style:{display:'flex',gap:32}}, stat(s.pass,'Pass','var(--risk-clear)'), stat(s.review,'Review','var(--risk-watch)'), stat(s.flag,'Flag','var(--risk-high)'))),
+      // toolbar
+      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'13px 22px',borderBottom:'1px solid var(--border)'}},
+        h('span',{style:{fontSize:13,fontWeight:500}},'Policy'), toggle),
+      // sections
+      h('div',null,
+        ...(f==='attn'
+          ? findingsSecs.map(sec=>this.secRow(sec))
+          : f==='all'
+            ? [...findingsSecs.map(sec=>this.secRow(sec)),
+               cleanSecs.length?h('div',{key:'div',style:{padding:'11px 22px',background:'var(--snow)',borderBottom:'1px solid var(--border)'}}, this.mono('Cleared — '+cleanSecs.length+' sections, no findings',{color:'var(--midnight-40)'})):null,
+               ...cleanSecs.map(sec=>this.secRow(sec))]
+            : (()=>{ const secs=P.filter(s=>this.secMatches(s,f)); return secs.length?secs.map(sec=>this.secRow(sec)):[h('div',{key:'none',style:{padding:'22px',textAlign:'center',color:'var(--midnight-40)',fontSize:13}},'No '+f+' questions')]; })())));
+  }
+
+  policySummaryCard(){ const h=React.createElement; if(!this.state.policy) return this.panel({}, this.panelHead('Onboarding policy'), h('div',{style:{padding:'24px',color:'var(--midnight-60)',fontSize:13}},'Loading…'));
+    const s=this.policyStats(); const items=this.policyAttention().slice(0,3);
+    const mini=(n,label,c)=> h('div',{style:{display:'flex',alignItems:'baseline',gap:6}}, h('span',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:22,color:c,lineHeight:1}},n), this.mono(label));
+    return this.panel({}, this.panelHead('Questions that matter', this.mono('Mercury · onboarding policy')),
+      h('div',{style:{padding:'16px 22px',borderBottom:'1px solid var(--border)',display:'flex',gap:24,flexWrap:'wrap'}}, mini(s.pass,'pass','var(--risk-clear)'), mini(s.review,'review','var(--risk-watch)'), mini(s.flag,'flag','var(--risk-high)')),
+      h('div',{style:{padding:'6px 0'}}, ...items.map((it,i)=>{ const sc=this.STAT[it.st].c;
+        return h('button',{key:i,onClick:()=>this.setS({direction:'C',view:'identity'}),style:{display:'flex',alignItems:'flex-start',gap:11,width:'100%',padding:'12px 22px',border:0,borderBottom:'1px solid var(--border)',background:'transparent',cursor:'pointer',textAlign:'left',fontFamily:'inherit'}},
+          h('span',{style:{width:7,height:7,borderRadius:'50%',background:sc,marginTop:5,flexShrink:0}}),
+          h('div',{style:{flex:1,minWidth:0}}, h('div',{style:{fontSize:12.5,color:'var(--midnight)'}},it.q.t), h('div',{style:{fontSize:11.5,color:sc,marginTop:2}},it.q.a))); })),
+      h('button',{onClick:()=>this.setS({direction:'C',view:'identity'}),style:{display:'flex',alignItems:'center',justifyContent:'space-between',width:'100%',padding:'13px 22px',border:0,background:'transparent',cursor:'pointer',fontFamily:'inherit',color:'var(--midnight)',fontSize:13}},'Open full policy evaluation', h('span',null,'→')));
+  }
+
+  questionsCard(){
+    const h=React.createElement;
+    return this.panel({}, this.panelHead('Questions that matter', this.mono('Policy · KYB')),
+      h('div',{style:{padding:'6px 22px 16px'}}, ...this.questions.map((q,i)=>
+        h('div',{key:i,style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'11px 0',borderBottom:i<this.questions.length-1?'1px solid var(--border)':'none'}},
+          h('span',{style:{fontSize:13,color:'var(--midnight-80)'}},q.q), this.pill(q.a,q.tone)))));
+  }
+  watchingCard(){
+    const h=React.createElement;
+    return this.panel({}, this.panelHead('What to watch'),
+      h('div',{style:{padding:'14px 18px 18px',display:'flex',flexDirection:'column',gap:10}}, ...this.watch.map((w,i)=>{
+        const c=this.RISK[w.tone].c;
+        return h('button',{key:i,onClick:()=>this.setS({view:'intelligence'}),style:{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',borderRadius:12,border:'1px solid color-mix(in srgb, '+c+' 22%, #fff)',background:'color-mix(in srgb, '+c+' 7%, #fff)',cursor:'pointer',textAlign:'left',width:'100%'}},
+          h('span',{style:{width:8,height:8,borderRadius:'50%',background:c,flexShrink:0}}),
+          h('div',{style:{flex:1,minWidth:0}}, h('div',{style:{fontSize:13,fontWeight:500}},w.label), h('div',{style:{fontSize:11.5,color:'var(--midnight-60)',marginTop:2}},w.sub)),
+          h('span',{style:{color:c,fontSize:14}},'→'));
+      })));
+  }
+  decisionLedger(){
+    const h=React.createElement;
+    return this.panel({}, this.panelHead('Decision history', this.mono(this.decisions.length+' decisions · versioned')),
+      h('div',{style:{padding:'4px 0'}}, ...this.decisions.map((d,i)=>
+        h('div',{key:i,style:{display:'grid',gridTemplateColumns:'120px 1fr auto',gap:18,alignItems:'start',padding:'16px 22px',borderBottom:i<this.decisions.length-1?'1px solid var(--border)':'none'}},
+          h('div',null, this.mono(d.date), h('div',{style:{fontSize:11.5,color:'var(--midnight-60)',marginTop:5}},d.mode)),
+          h('div',null, h('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}, h('span',{style:{fontSize:14,fontWeight:500}},d.title), this.pill(d.outcome,d.tone)),
+            h('p',{style:{margin:'6px 0 0',fontSize:12.5,lineHeight:1.5,color:'var(--midnight-80)',maxWidth:620}},d.why)),
+          h('div',{style:{textAlign:'right',whiteSpace:'nowrap'}}, h('div',{style:{fontSize:12.5,color:'var(--midnight)'}},d.who), this.mono(d.sources+' sources',{display:'block',marginTop:4}))))));
+  }
+
+  /* ---------- latest decision + history drawer (decisions demoted from first-class) ---------- */
+  lastDecisionCard(){ const h=React.createElement; const asMs=this.asOfMs; const avail=this.decisions.filter(d=>this.parseDate(d.date)<=asMs); const d=avail[0]||this.decisions[this.decisions.length-1]; const c=this.RISK[d.tone].c; const older=Math.max(0,avail.length-1);
+    return this.panel({}, this.panelHead('Latest decision',
+      h('button',{onClick:()=>this.setState({decisionsOpen:true}),style:{display:'inline-flex',alignItems:'center',gap:7,padding:'6px 11px',borderRadius:8,border:'1px solid var(--border)',background:'#fff',cursor:'pointer',fontSize:12,color:'var(--midnight-80)',fontFamily:'inherit'}}, 'History ('+avail.length+')', h('span',{style:{color:'var(--midnight-40)'}},'→'))),
+      h('div',{style:{padding:'18px 22px'}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}, this.mono(d.date), this.pill(d.outcome,d.tone)),
+        h('div',{style:{fontSize:16,fontWeight:500,margin:'8px 0 6px'}},d.title),
+        h('p',{style:{margin:0,fontSize:13,lineHeight:1.55,color:'var(--midnight-80)'}},d.why),
+        h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:14,paddingTop:14,borderTop:'1px solid var(--border)'}},
+          h('div',{style:{display:'flex',flexDirection:'column'}}, this.mono(d.mode), h('span',{style:{fontSize:12.5,color:'var(--midnight)',marginTop:3}},d.who)),
+          this.mono(d.sources+' sources'))));
+  }
+  decisionDrawer(){ const h=React.createElement; if(!this.state.decisionsOpen) return null;
+    return h('div',{style:{position:'fixed',inset:0,zIndex:50,display:'flex',justifyContent:'flex-end'}},
+      h('div',{onClick:()=>this.setState({decisionsOpen:false}),style:{position:'absolute',inset:0,background:'rgba(11,49,57,.38)',animation:'mdGrow .2s ease'}}),
+      h('div',{style:{position:'relative',width:480,maxWidth:'92vw',height:'100%',background:'#fff',boxShadow:'-20px 0 50px -20px rgba(11,49,57,.4)',display:'flex',flexDirection:'column',animation:'mdSlide .28s var(--ease-expo)'}},
+        h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'20px 24px',borderBottom:'1px solid var(--border)'}},
+          h('div',null, this.mono('Persisted & versioned'), h('div',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:22,marginTop:4}},'Decision history')),
+          h('button',{onClick:()=>this.setState({decisionsOpen:false}),style:{width:34,height:34,borderRadius:9,border:'1px solid var(--border)',background:'#fff',cursor:'pointer',fontSize:16,color:'var(--midnight-60)'}},'✕')),
+        h('div',{style:{flex:1,overflowY:'auto',padding:'8px 0'}}, ...this.decisions.map((d,i)=>{ const c=this.RISK[d.tone].c; const last=i===this.decisions.length-1;
+          return h('div',{key:i,style:{display:'grid',gridTemplateColumns:'18px 1fr',gap:14,padding:'18px 24px',borderBottom:last?'none':'1px solid var(--border)'}},
+            h('div',{style:{display:'flex',flexDirection:'column',alignItems:'center'}}, h('span',{style:{width:11,height:11,borderRadius:'50%',background:i===0?c:'#fff',border:'2px solid '+c,marginTop:4}}), last?null:h('div',{style:{flex:1,width:1,background:'var(--border)',marginTop:6}})),
+            h('div',null,
+              h('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}, this.mono(d.date), this.pill(d.outcome,d.tone)),
+              h('div',{style:{fontSize:14.5,fontWeight:500,margin:'6px 0 4px'}},d.title),
+              h('p',{style:{margin:'0 0 8px',fontSize:12.5,lineHeight:1.5,color:'var(--midnight-80)'}},d.why),
+              h('div',{style:{display:'flex',gap:14,flexWrap:'wrap'}}, this.mono(d.mode), this.mono(d.who,{color:'var(--midnight)'}), this.mono(d.sources+' sources')))); }))));
+  }
+
+  /* ---------- embedded Intelligence: connected identities inside the Identity view ---------- */
+  connectedIdentitiesPanel(){ const h=React.createElement; const E=this.entities;
+    const cfg=this.profile.connected||{own:[],conn:[],summary:'No connected identities on record.'};
+    const own=cfg.own||[]; const conn=cfg.conn||[];
+    const avatar=(e)=> h('span',{style:{width:30,height:30,borderRadius:e.kind==='person'?'50%':8,background:'var(--fog)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--font-mono)',fontSize:10,color:'var(--midnight-80)',flexShrink:0}}, e.name.split(' ').slice(0,2).map(w=>w[0]).join(''));
+    return this.panel({}, this.panelHead('Connected identities', this.mono('From the Intelligence view')),
+      h('div',{style:{padding:'16px 22px 18px'}},
+        h('p',{style:{margin:'0 0 16px',fontSize:13,lineHeight:1.55,color:'var(--midnight-80)'}},cfg.summary),
+        own.length?this.mono('Ownership & control'):null,
+        own.length?h('div',{style:{margin:'10px 0 6px',display:'flex',flexDirection:'column',gap:8}}, ...own.map(o=>{ const e=E[o.id]; const c=this.RISK[o.risk].c;
+          return h('div',{key:o.id,style:{display:'flex',alignItems:'center',gap:12,padding:'11px 13px',borderRadius:12,border:'1px solid var(--border)'}},
+            avatar(e),
+            h('div',{style:{flex:1,minWidth:0}}, h('div',{style:{fontSize:13.5,fontWeight:500}},e.name), h('div',{style:{fontSize:11.5,color:'var(--midnight-60)',marginTop:2}},o.rel+' — '+o.note)),
+            h('div',{style:{textAlign:'right'}}, h('div',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:22,lineHeight:1,color:'var(--midnight)'}},o.pct+'%'), h('span',{style:{display:'inline-block',width:7,height:7,borderRadius:'50%',background:c,marginTop:5}}))); })):null,
+        cfg.note?h('div',{style:{fontSize:11.5,color:'var(--midnight-60)',padding:'2px 2px 0',display:'flex',alignItems:'center',gap:7}}, h('span',{style:{color:'var(--midnight-40)'}},'↳'),cfg.note):null,
+        (own.length&&conn.length)?h('div',{style:{height:1,background:'var(--border)',margin:'16px 0'}}):null,
+        conn.length?this.mono('Connected through shared attributes'):null,
+        conn.length?h('div',{style:{margin:'10px 0 0',display:'flex',flexDirection:'column',gap:8}}, ...conn.map(c=>{ const e=E[c.id]; const rc=this.RISK[c.risk].c;
+          return h('div',{key:c.id,style:{display:'flex',alignItems:'center',gap:12,padding:'11px 13px',borderRadius:12,border:'1px solid '+(c.flag?'color-mix(in srgb, '+rc+' 28%, #fff)':'var(--border)'),background:c.flag?'color-mix(in srgb, '+rc+' 6%, #fff)':'#fff'}},
+            avatar(e),
+            h('div',{style:{flex:1,minWidth:0}}, h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, h('span',{style:{fontSize:13.5,fontWeight:500}},e.name), c.flag?this.mono('Risk you can\u2019t see alone',{color:rc}):null), h('div',{style:{fontSize:11.5,color:'var(--midnight-60)',marginTop:2}},c.via)),
+            this.strengthMeter(c.strength),
+            this.pill(this.RISK[c.risk].label,c.risk)); })):null,
+        h('div',{style:{display:'flex',gap:10,marginTop:16}},
+          h('button',{onClick:()=>this.openIntel('What businesses share a common owner with '+this.nameOf+'?'),style:{display:'inline-flex',alignItems:'center',gap:8,padding:'10px 15px',borderRadius:10,border:0,background:'var(--midnight)',color:'var(--snow)',cursor:'pointer',fontSize:13,fontFamily:'inherit'}},'Ask Intelligence',h('span',null,'→')),
+          h('button',{onClick:()=>this.setS({view:'identity',direction:'B'}),style:{display:'inline-flex',alignItems:'center',gap:8,padding:'10px 15px',borderRadius:10,border:'1px solid var(--border)',background:'#fff',color:'var(--midnight-80)',cursor:'pointer',fontSize:13,fontFamily:'inherit'}},'View network'))));
+  }
+
+  /* ---------- data attributes (atomic data behind the questions) — tertiary, collapsible ---------- */
+  /* ---------- data attributes (atomic data behind the questions) — tertiary, collapsible ---------- */
+  dataAttributesPanel(){ const h=React.createElement; const open=this.state.attrsOpen;
+    const count=this.dataAttrs.reduce((n,g)=>n+g.rows.length,0);
+    const sharedCount=this.dataAttrs.reduce((n,g)=>n+g.rows.filter(r=>r.shared).length,0);
+    return this.panel({},
+      h('button',{onClick:()=>this.setState({attrsOpen:!open}),style:{display:'flex',alignItems:'center',justifyContent:'space-between',width:'100%',padding:'15px 22px',border:0,background:'#fff',cursor:'pointer',fontFamily:'inherit',textAlign:'left'}},
+        h('div',{style:{display:'flex',alignItems:'baseline',gap:12}}, h('span',{style:{fontSize:13,fontWeight:500}},'Data attributes'), this.mono('Atomic data · '+count+' attributes · '+sharedCount+' shared')),
+        h('span',{style:{color:'var(--midnight-40)',fontSize:13,transform:open?'rotate(180deg)':'none',transition:'transform .2s'}},'⌄')),
+      open?h('div',{style:{padding:'4px 22px 20px',borderTop:'1px solid var(--border)',animation:'mdFade .2s var(--ease-power2)'}},
+        h('p',{style:{margin:'14px 0 16px',fontSize:12.5,lineHeight:1.5,color:'var(--midnight-60)',maxWidth:680}},'Every attribute that answers a question, with its source. Attributes shared with other identities are what link Vela into the network \u2014 these power the Intelligence view.'),
+        ...this.dataAttrs.map((grp,gi)=>
+          h('div',{key:gi,style:{marginBottom:gi<this.dataAttrs.length-1?18:0}},
+            this.mono(grp.g,{color:'var(--midnight-40)'}),
+            h('div',{style:{marginTop:8,border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}, ...grp.rows.map((r,ri)=>
+              h('div',{key:ri,style:{display:'grid',gridTemplateColumns:'180px 1fr auto',gap:14,alignItems:'center',padding:'10px 14px',borderBottom:ri<grp.rows.length-1?'1px solid var(--border)':'none',background:'#fff'}},
+                this.mono(r.k),
+                h('span',{style:{fontSize:13,color:r.muted?'var(--midnight-40)':'var(--midnight)',fontFamily:r.mono?'var(--font-mono)':'inherit'}},r.v),
+                h('div',{style:{display:'flex',alignItems:'center',gap:8,justifyContent:'flex-end',flexWrap:'wrap'}},
+                  r.shared?h('button',{onClick:()=>this.openIntel(r.weight==='strong'?(r.k==='Officer'?'What businesses share the officer Marcus Okonkwo?':'What businesses share a common owner with Vela Logistics?'):'What businesses share the 4400 Wilshire Blvd address?'),style:{display:'inline-flex',alignItems:'center',gap:6,padding:'3px 8px',borderRadius:9999,border:'1px solid color-mix(in srgb, var(--lime) 40%, #fff)',background:'color-mix(in srgb, var(--lime) 12%, #fff)',color:'var(--midnight)',cursor:'pointer',fontFamily:'var(--font-mono)',fontSize:9,letterSpacing:'.04em',textTransform:'uppercase'}}, h('span',{style:{width:5,height:5,borderRadius:'50%',background:'var(--midnight)'}}),'Shared · '+r.shared):null,
+                  r.unique?this.mono('Unique',{color:'var(--risk-clear)'}):null,
+                  r.excluded?this.mono('Excluded',{color:'var(--midnight-40)'}):null,
+                  this.mono(r.src,{color:'var(--midnight-60)'}))))))) ):null);
+  }
+  A_identity(){
+    const h=React.createElement; const V=this.versions; const rev=V.map((v,i)=>[v,i]).reverse();
+    return h('div',{style:{padding:'26px 32px 44px',maxWidth:1280,margin:'0 auto',display:'flex',flexDirection:'column',gap:18}},
+      this.identityHero(),
+      h('div',{style:{display:'grid',gridTemplateColumns:'1.5fr 1fr',gap:18,alignItems:'start'}},
+        this.panel({}, this.panelHead('How this identity has changed', this.mono(V.length+' versions · since 2019')),
+          h('div',{style:{padding:'14px 22px 14px'}}, ...rev.map(([v,i],k)=>this.timeEvent(v,i,k===rev.length-1)))),
+        h('div',{style:{display:'flex',flexDirection:'column',gap:18}}, this.policySummaryCard(), this.watchingCard())),
+      h('div',{style:{display:'grid',gridTemplateColumns:'1.5fr 1fr',gap:18,alignItems:'start'}},
+        this.connectedIdentitiesPanel(),
+        this.lastDecisionCard()),
+      this.dataAttributesPanel());
+  }
+
+  /* ---------- Intelligence (A) : structured list / tree ---------- */
+  get queries(){ return {
+    address:{label:'Shared address',value:'4400 Wilshire Blvd, Los Angeles, CA',attr:'Address',note:'A commercial address. Sharing it is a weak signal — many unrelated businesses can use the same building.',risk:'low',
+      conns:[
+        {id:'vela',ctype:'Shared address',strength:'weak',risk:'clear',ev:'Listed as principal address since Oct 2024',self:true},
+        {id:'cedar',ctype:'Shared address',strength:'weak',risk:'clear',ev:'Registered agent address on CA SoS filing'},
+        {id:'brightpath',ctype:'Shared address',strength:'weak',risk:'clear',ev:'Mailing address on 2 state registrations'}]},
+    ubo:{label:'Common owner',value:'Meridian Holdings LLC',attr:'Beneficial owner',note:'A controlling beneficial owner. Sharing one is a strong signal — it implies common control.',risk:'watch',
+      conns:[
+        {id:'vela',ctype:'Owns 60%',strength:'strong',risk:'watch',ev:'FinCEN BOI filing · controlling interest',self:true,pct:60},
+        {id:'anchor',ctype:'Owns 100%',strength:'strong',risk:'low',ev:'FinCEN BOI filing · wholly owned',pct:100},
+        {id:'okonkwo',ctype:'Owns Meridian 75%',strength:'strong',risk:'low',ev:'FinCEN BOI filing',pct:75}]},
+    officer:{label:'Common officer',value:'Marcus Okonkwo',attr:'Officer',note:'A shared officer is a strong signal of an operating relationship — and the path that carries hidden risk here.',risk:'elev',
+      conns:[
+        {id:'vela',ctype:'Controls via Meridian',strength:'strong',risk:'watch',ev:'Indirect through Meridian Holdings',self:true},
+        {id:'harbor',ctype:'Officer',strength:'strong',risk:'watch',ev:'Director on CA SoS record'},
+        {id:'stillwater',ctype:'2 hops · shared officer',strength:'moderate',risk:'high',ev:'Via J. Reyes, co-officer at Harbor Freight'}]},
+  }; }
+  /* open intelligence input: type a data attribute, or attach a document to ingest */
+  get intelSuggest(){ return [
+    {k:'address', kind:'Office address', value:'4400 Wilshire Blvd', terms:'address location office building wilshire'},
+    {k:'ubo', kind:'Beneficial owner', value:'Meridian Holdings LLC', terms:'owner ubo beneficial meridian holdings parent control'},
+    {k:'officer', kind:'Officer name', value:'Marcus Okonkwo', terms:'officer director okonkwo marcus signer'},
+  ]; }
+  selectAttr(k){ this.setS({query:k}); this.setState({intelQ:'', intelOpen:false, ingestedDoc:null}); }
+  onIngest(e){
+    const f=e.target&&e.target.files&&e.target.files[0]; if(!f) return;
+    // simulate extract → validate → connect: a doc surfaces an officer the user couldn't query alone
+    this.setState({ingestedDoc:f.name, intelOpen:false, intelQ:''}); this.setS({query:'officer'});
+    e.target.value='';
+  }
+  intelInputBar(q){
+    const h=React.createElement; const txt=this.state.intelQ||''; const open=this.state.intelOpen;
+    const filt=this.intelSuggest.filter(s=> !txt || (s.kind+' '+s.value+' '+s.terms).toLowerCase().includes(txt.toLowerCase()));
+    const chip=(s)=> h('button',{key:s.k,onMouseDown:(e)=>{e.preventDefault();this.selectAttr(s.k);},style:{display:'inline-flex',alignItems:'center',gap:8,padding:'6px 11px',border:'1px solid '+(this.state.query===s.k&&!this.state.ingestedDoc?'var(--midnight)':'var(--border)'),background:this.state.query===s.k&&!this.state.ingestedDoc?'var(--midnight)':'#fff',color:this.state.query===s.k&&!this.state.ingestedDoc?'var(--snow)':'var(--midnight-80)',borderRadius:9999,cursor:'pointer',fontSize:12,transition:'all .15s'}},
+      h('span',{style:{fontFamily:'var(--font-mono)',fontSize:9,letterSpacing:'.04em',textTransform:'uppercase',opacity:.65}},s.kind), s.value);
+    return h('div',{style:{background:'#fff',border:'1px solid var(--border)',borderRadius:18,padding:'22px 26px'}},
+      this.mono('Intelligence · Start from a data attribute'),
+      h('div',{style:{display:'flex',alignItems:'center',gap:8,margin:'8px 0 14px',flexWrap:'wrap'}},
+        h('span',{style:{fontSize:19,fontFamily:'var(--font-serif)',fontWeight:300,letterSpacing:'-.01em'}},'What businesses share a data attribute?')),
+      // input row
+      h('div',{style:{position:'relative'}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:12,padding:'13px 16px',border:'1px solid '+(open?'var(--midnight)':'var(--border)'),borderRadius:12,background:'var(--snow)',transition:'border-color .15s',boxShadow:open?'0 0 0 3px color-mix(in srgb, var(--midnight) 9%, transparent)':'none'}},
+          h('svg',{width:16,height:16,viewBox:'0 0 24 24',fill:'none',stroke:'var(--midnight-40)',strokeWidth:2,style:{flexShrink:0}}, h('circle',{cx:11,cy:11,r:7}), h('line',{x1:21,y1:21,x2:16.5,y2:16.5})),
+          h('input',{value:txt,placeholder:'Type a data attribute — address, owner, officer, phone, TIN, email, IP…',
+            onChange:(e)=>this.setState({intelQ:e.target.value,intelOpen:true}),
+            onFocus:()=>this.setState({intelOpen:true}),
+            onBlur:()=>setTimeout(()=>this.setState({intelOpen:false}),140),
+            onKeyDown:(e)=>{ if(e.key==='Enter'&&filt[0]) this.selectAttr(filt[0].k); if(e.key==='Escape') e.target.blur(); },
+            style:{flex:1,minWidth:0,border:0,outline:'none',background:'transparent',font:'400 15px var(--font-sans)',color:'var(--midnight)'}}),
+          h('label',{style:{display:'inline-flex',alignItems:'center',gap:7,padding:'8px 12px',borderRadius:9,border:'1px dashed var(--midnight-40)',color:'var(--midnight-80)',cursor:'pointer',fontSize:12.5,whiteSpace:'nowrap',flexShrink:0}},
+            h('svg',{width:14,height:14,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2}, h('path',{d:'M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48'})),
+            'Attach document',
+            h('input',{type:'file',accept:'.pdf,.png,.jpg,.jpeg,.csv,.doc,.docx',onChange:(e)=>this.onIngest(e),style:{display:'none'}}))),
+        // suggestion dropdown
+        open?h('div',{style:{position:'absolute',top:'calc(100% + 6px)',left:0,right:0,zIndex:10,background:'#fff',border:'1px solid var(--border)',borderRadius:12,boxShadow:'0 14px 38px -12px rgba(11,49,57,.30)',overflow:'hidden',animation:'mdFade .15s var(--ease-power2)'}},
+          h('div',{style:{padding:'9px 14px',borderBottom:'1px solid var(--border)'}}, this.mono(txt?'Matching attributes':'Attributes on this identity')),
+          filt.length?filt.map((s,i)=> h('div',{key:s.k,onMouseDown:(e)=>{e.preventDefault();this.selectAttr(s.k);},style:{display:'flex',alignItems:'center',gap:12,padding:'11px 14px',cursor:'pointer',borderBottom:i<filt.length-1?'1px solid var(--border)':'none'},onMouseEnter:(e)=>e.currentTarget.style.background='var(--snow)',onMouseLeave:(e)=>e.currentTarget.style.background='transparent'},
+            h('span',{style:{width:26,height:26,borderRadius:7,background:'var(--fog)',display:'inline-flex',alignItems:'center',justifyContent:'center',flexShrink:0}}, h('span',{style:{width:7,height:7,borderRadius:'50%',background:'var(--midnight-60)'}})),
+            h('div',{style:{flex:1,minWidth:0}}, h('div',{style:{fontSize:13.5,fontWeight:500}},s.value), this.mono(s.kind)),
+            h('span',{style:{fontSize:11,color:'var(--midnight-40)'}},'↵'))):
+          h('div',{style:{padding:'14px',fontSize:12.5,color:'var(--midnight-60)'}},'No matching attribute on this identity. Attach a document to add one.')):null),
+      // active selection / ingested doc readout
+      this.state.ingestedDoc?
+        h('div',{style:{display:'flex',alignItems:'center',gap:14,padding:'13px 16px',marginTop:12,background:'color-mix(in srgb, var(--lime) 9%, #fff)',border:'1px solid color-mix(in srgb, var(--lime) 32%, #fff)',borderRadius:12,flexWrap:'wrap'}},
+          this.pill('Document ingested','low'),
+          h('span',{style:{fontSize:13.5,fontWeight:500}},this.state.ingestedDoc),
+          h('span',{style:{fontSize:12.5,color:'var(--midnight-60)'}},'→ extracted officer “'+q.value+'”, validated, and connected'),
+          h('span',{style:{flex:1}}),
+          h('button',{onMouseDown:(e)=>{e.preventDefault();this.setState({ingestedDoc:null});},style:{background:'none',border:0,color:'var(--midnight-60)',cursor:'pointer',fontSize:12,textDecoration:'underline'}},'Clear'))
+        :h('div',{style:{display:'flex',alignItems:'center',gap:14,padding:'13px 16px',marginTop:12,background:'var(--fog)',borderRadius:12,flexWrap:'wrap'}},
+          this.mono('Querying'), this.pill(q.attr,'mute'),
+          h('span',{style:{fontSize:15,fontWeight:500}},q.value),
+          h('span',{style:{flex:1}}),
+          h('div',{style:{textAlign:'right'}}, this.mono('Aggregate network risk'), h('div',{style:{marginTop:4}},this.pill(this.RISK[q.risk].label,q.risk)))),
+      // quick-pick chips
+      h('div',{style:{display:'flex',alignItems:'center',gap:8,marginTop:14,flexWrap:'wrap'}},
+        this.mono('Try',{color:'var(--midnight-40)'}), ...this.intelSuggest.map(chip)));
+  }
+  /* =====================================================
+     INTELLIGENCE VIEW — chat (ask a question → assembled answer)
+  ===================================================== */
+  get intelPrompts(){ return [
+    'Tell me insights about my portfolio',
+    'What businesses share the officer Marcus Okonkwo?',
+    'What does Vela Logistics\u2019 ownership network look like?',
+    'What businesses share the 4400 Wilshire Blvd address?',
+  ]; }
+  keyFromText(t){ const s=(t||'').toLowerCase();
+    if(/portfolio|my businesses|my identities|across (my |all )|all my|trends?|book of business|accounts?|which identities|most .*risk|elevate|standing out/.test(s)) return 'portfolio';
+    if(/summar|overview|tell me about|risk on|profile of|snapshot|how old/.test(s)) return 'identity';
+    if(/officer|director|okonkwo|reyes|nguyen|signer/.test(s)) return 'officer';
+    if(/owner|ubo|ownership|meridian|beneficial|parent|control/.test(s)) return 'ubo';
+    if(/address|location|building|wilshire|premise/.test(s)) return 'address';
+    return null; }
+  askIntel(text){ const t=(text||'').trim(); if(!t) return; const key=this.keyFromText(t);
+    this.setState(s=>({chat:[...s.chat,{q:t,key}],chatInput:''}), ()=>{ const el=document.getElementById('intel-msgs'); if(el) setTimeout(()=>el.scrollTo({top:el.scrollHeight,behavior:'smooth'}),60); }); }
+  openIntel(text){ this.setS({view:'intelligence'}); this.askIntel(text); }
+
+  connRows(ranked){ const h=React.createElement; const E=this.entities;
+    return h('div',{style:{display:'flex',flexDirection:'column',gap:8}}, ...ranked.map((c,i)=>{ const e=E[c.id]; const rc=this.RISK[c.risk].c;
+      return h('div',{key:c.id,style:{display:'grid',gridTemplateColumns:'auto 1fr auto auto',gap:13,alignItems:'center',padding:'11px 13px',borderRadius:11,border:'1px solid '+(c.risk==='high'?'color-mix(in srgb, '+rc+' 28%, #fff)':'var(--border)'),background:c.risk==='high'?'color-mix(in srgb, '+rc+' 6%, #fff)':(c.self?'color-mix(in srgb, var(--lime) 6%, #fff)':'#fff')}},
+        h('span',{style:{width:32,height:32,borderRadius:e.kind==='person'?'50%':8,background:'var(--fog)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--font-mono)',fontSize:10,color:'var(--midnight-80)',flexShrink:0}}, e.name.split(' ').slice(0,2).map(w=>w[0]).join('')),
+        h('div',{style:{minWidth:0}}, h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, h('span',{style:{fontSize:13.5,fontWeight:500}},e.name), c.self?this.pill('This business','low',{fontSize:9}):null), h('div',{style:{fontSize:11.5,color:'var(--midnight-60)',marginTop:2}}, e.type+' · '+c.ctype+(c.pct?(' · '+c.pct+'%'):'')+' — '+c.ev)),
+        this.strengthMeter(c.strength),
+        this.pill(this.RISK[c.risk].label,c.risk)); }));
+  }
+  /* ---------- portfolio-level insights (across many businesses) ---------- */
+  get portfolio(){ return {
+    total:1284, monitored:1284, dist:[['clear',912],['low',214],['watch',98],['elev',42],['high',18]],
+    insights:[
+      {tone:'elev',tag:'Emerging risk',title:'3 businesses now link to a high-risk entity',
+       body:'Stillwater Imports (High) entered 3 of your portfolios\u2019 networks this quarter through shared officers and a common holding company. None show direct risk on their own.',
+       biz:[{id:'vela',via:'3 hops · shared officer'},{id:'harbor',via:'Direct officer'},{id:'anchor',via:'Common owner'}],
+       metric:'+3',metricSub:'this quarter',act:'Review the 3 connected files'},
+      {tone:'watch',tag:'Concentration',title:'Meridian Holdings controls 4 businesses you monitor',
+       body:'A single beneficial owner now sits behind 4 active accounts — concentration worth a portfolio-level limit, not just per-file review.',
+       biz:[{id:'vela',via:'60%'},{id:'anchor',via:'100%'},{id:'harbor',via:'via officer'}],
+       metric:'4',metricSub:'common control',act:'Set a relationship exposure cap'},
+      {tone:'watch',tag:'Trend',title:'Address-sharing up 18% in trucking & logistics',
+       body:'Across your logistics book, more businesses are registering at shared commercial addresses. Weak on its own — but the rate of change is the signal.',
+       biz:[{id:'vela',via:'4400 Wilshire'},{id:'cedar',via:'4400 Wilshire'},{id:'brightpath',via:'4400 Wilshire'}],
+       metric:'+18%',metricSub:'vs. last quarter',act:'See the trucking segment'},
+      {tone:'low',tag:'Usage',title:'9 accounts have unresolved findings older than 30 days',
+       body:'These sat in manual review past your SLA. Clearing them restores monitoring coverage across the portfolio.',
+       biz:[{id:'harbor',via:'42 days'},{id:'stillwater',via:'37 days'}],
+       metric:'9',metricSub:'past SLA',act:'Open the review queue'},
+    ],
+  }; }
+  portfolioBar(){ const h=React.createElement; const P=this.portfolio; const tot=P.dist.reduce((n,d)=>n+d[1],0);
+    return h('div',{style:{display:'flex',flexDirection:'column',gap:8}},
+      h('div',{style:{display:'flex',height:12,borderRadius:7,overflow:'hidden',border:'1px solid var(--border)'}},
+        ...P.dist.map(([t,n],i)=>h('div',{key:i,title:this.RISK[t].label+': '+n,style:{width:(n/tot*100)+'%',background:this.RISK[t].c}}))),
+      h('div',{style:{display:'flex',gap:'8px 16px',flexWrap:'wrap'}}, ...P.dist.map(([t,n],i)=>
+        h('div',{key:i,style:{display:'flex',alignItems:'center',gap:6,fontSize:11.5,color:'var(--midnight-60)'}},
+          h('span',{style:{width:8,height:8,borderRadius:'50%',background:this.RISK[t].c}}), this.RISK[t].label, h('span',{style:{color:'var(--midnight)',fontWeight:500}},n)))));
+  }
+  portfolioAnswer(){ const h=React.createElement; const P=this.portfolio; const E=this.entities;
+    const avatar=(id)=>{ const e=E[id]; return h('span',{key:id,title:e.name,style:{width:26,height:26,borderRadius:e.kind==='person'?'50%':7,background:'var(--fog)',border:'1.5px solid #fff',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--font-mono)',fontSize:9,color:'var(--midnight-80)',marginLeft:-6}}, e.name.split(' ').slice(0,2).map(w=>w[0]).join('')); };
+    return h('div',{style:{background:'#fff',border:'1px solid var(--border)',borderRadius:16,borderTopLeftRadius:4,padding:'20px 22px',maxWidth:760,display:'flex',flexDirection:'column',gap:16}},
+      this.midAttrib(),
+      h('div',null,
+        h('div',{style:{display:'flex',alignItems:'baseline',gap:10,flexWrap:'wrap'}}, h('span',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:27,lineHeight:1.05}},P.total.toLocaleString()+' businesses'), h('span',{style:{fontSize:14,color:'var(--midnight-60)'}},'monitored across your portfolio'), this.pill('4 insights to elevate','elev')),
+        h('p',{style:{margin:'10px 0 14px',fontSize:13,lineHeight:1.55,color:'var(--midnight-80)'}},'Here\u2019s what stands out right now — patterns that only appear when I look across businesses, not at any single one.'),
+        this.portfolioBar()),
+      h('div',{style:{display:'flex',flexDirection:'column',gap:11}}, ...P.insights.map((ins,i)=>{ const c=this.RISK[ins.tone].c;
+        return h('div',{key:i,style:{border:'1px solid var(--border)',borderLeft:'3px solid '+c,borderRadius:12,padding:'15px 16px',background:'color-mix(in srgb, '+c+' 4%, #fff)'}},
+          h('div',{style:{display:'flex',justifyContent:'space-between',gap:14,alignItems:'flex-start'}},
+            h('div',{style:{minWidth:0,flex:1}},
+              h('div',{style:{display:'flex',alignItems:'center',gap:9,marginBottom:6}}, this.pill(ins.tag,ins.tone,{fontSize:9})),
+              h('div',{style:{fontSize:15,fontWeight:500,lineHeight:1.25}},ins.title),
+              h('p',{style:{margin:'6px 0 0',fontSize:12.5,lineHeight:1.5,color:'var(--midnight-80)'}},ins.body)),
+            h('div',{style:{textAlign:'right',flexShrink:0}}, h('div',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:28,lineHeight:1,color:c}},ins.metric), this.mono(ins.metricSub,{display:'block',marginTop:3}))),
+          h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginTop:13,flexWrap:'wrap'}},
+            h('div',{style:{display:'flex',alignItems:'center',gap:10}},
+              h('div',{style:{display:'flex',paddingLeft:6}}, ...ins.biz.map(b=>avatar(b.id))),
+              this.mono(ins.biz.length+(ins.biz.length===1?' business':' businesses'),{color:'var(--midnight-60)'})),
+            h('button',{onClick:()=>{ const k=ins.tag==='Emerging risk'?'officer':ins.tag==='Concentration'?'ubo':ins.tag==='Trend'?'address':null; if(k) this.askIntel(ins.act); },style:{display:'inline-flex',alignItems:'center',gap:7,padding:'7px 12px',borderRadius:9,border:'1px solid '+c,background:'#fff',color:c,cursor:'pointer',fontSize:12.5,fontFamily:'inherit'}}, ins.act, h('span',null,'\u2192')))); })),
+      h('div',{style:{fontSize:11.5,color:'var(--midnight-60)',display:'flex',alignItems:'center',gap:7}}, h('span',{style:{color:'var(--midnight-40)'}},'↳'),'Ask a follow-up — e.g. \u201cwhich businesses link to Stillwater Imports?\u201d or \u201cshow me everything Meridian controls.\u201d'));
+  }
+  identityAnswer(){ const h=React.createElement;
+    const facts=[['Age','7 years · formed 03.12.19'],['Type','C-Corporation · CA'],['Owners','Meridian 60% · Nguyen 15%'],['Standing','Active · good standing']];
+    const findings=this.watch;
+    return h('div',{style:{background:'#fff',border:'1px solid var(--border)',borderRadius:16,borderTopLeftRadius:4,padding:'20px 22px',maxWidth:720,display:'flex',flexDirection:'column',gap:15}},
+      this.midAttrib(),
+      h('div',null,
+        h('div',{style:{display:'flex',alignItems:'baseline',gap:10,flexWrap:'wrap'}}, h('span',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:26,lineHeight:1.05}},'Vela Logistics, Inc.'), this.pill('Business identity · Watch','watch'), this.pill('Network · Elevated','elev')),
+        h('p',{style:{margin:'9px 0 0',fontSize:13,lineHeight:1.55,color:'var(--midnight-80)'}},'A 7-year-old California freight carrier in good standing. Clean on its own record — the risk is inherited: an Apr 2026 restructure handed control to a holding company that links, three hops out, to a high-risk entity.')),
+      h('div',{style:{display:'grid',gridTemplateColumns:'repeat(2, 1fr)',gap:'9px 20px'}}, ...facts.map(([k,v],i)=>
+        h('div',{key:i,style:{display:'flex',flexDirection:'column',gap:2}}, this.mono(k,{color:'var(--midnight-60)'}), h('span',{style:{fontSize:13,color:'var(--midnight)'}},v)))),
+      h('div',null, this.mono('What to watch',{color:'var(--midnight-60)',display:'block',marginBottom:9}),
+        h('div',{style:{display:'flex',flexDirection:'column',gap:8}}, ...findings.map((w,i)=>{ const c=this.RISK[w.tone].c;
+          return h('div',{key:i,style:{display:'flex',alignItems:'center',gap:11,padding:'10px 12px',borderRadius:11,border:'1px solid color-mix(in srgb, '+c+' 22%, #fff)',background:'color-mix(in srgb, '+c+' 6%, #fff)'}},
+            h('span',{style:{width:8,height:8,borderRadius:'50%',background:c,flexShrink:0}}),
+            h('div',{style:{flex:1,minWidth:0}}, h('div',{style:{fontSize:13,fontWeight:500}},w.label), h('div',{style:{fontSize:11.5,color:'var(--midnight-60)',marginTop:2}},w.sub))); }))),
+      h('div',{style:{display:'flex',gap:10}},
+        h('button',{onClick:()=>this.setS({view:'identity',direction:'C'}),style:{display:'inline-flex',alignItems:'center',gap:8,padding:'10px 15px',borderRadius:10,border:0,background:'var(--midnight)',color:'var(--snow)',cursor:'pointer',fontSize:13,fontFamily:'inherit'}},'Open full Identity',h('span',null,'→')),
+        h('button',{onClick:()=>this.setS({view:'identity',direction:'B'}),style:{display:'inline-flex',alignItems:'center',gap:8,padding:'10px 15px',borderRadius:10,border:'1px solid var(--border)',background:'#fff',color:'var(--midnight-80)',cursor:'pointer',fontSize:13,fontFamily:'inherit'}},'View network')));
+  }
+  assembledAnswer(item){ const h=React.createElement; const key=item.key;
+    if(key==='portfolio') return this.portfolioAnswer();
+    if(key==='identity') return this.identityAnswer();
+    if(!key||!this.queries[key]){
+      return h('div',{style:{background:'#fff',border:'1px solid var(--border)',borderRadius:16,borderTopLeftRadius:4,padding:'18px 20px',maxWidth:680}},
+        this.midAttrib(),
+        h('p',{style:{margin:'10px 0 12px',fontSize:14,lineHeight:1.55,color:'var(--midnight-80)'}},'I can assemble connections around a shared data attribute. Try asking about a shared officer, a common owner, or a shared address:'),
+        h('div',{style:{display:'flex',flexDirection:'column',gap:8}}, ...this.intelPrompts.map((p,i)=>
+          h('button',{key:i,onClick:()=>this.askIntel(p),style:{textAlign:'left',padding:'10px 13px',borderRadius:10,border:'1px solid var(--border)',background:'var(--snow)',cursor:'pointer',fontSize:13,color:'var(--midnight)',fontFamily:'inherit'}},p))));
+    }
+    const Q=this.queries[key]; const g=this.bIntel(key);
+    const ranked=Q.conns.slice().sort((a,b)=>({strong:3,moderate:2,weak:1}[b.strength]-{strong:3,moderate:2,weak:1}[a.strength]));
+    const verdict = key==='officer'?{t:'Act',tone:'elev',txt:'This officer is the path that carries hidden risk — a high-risk entity sits three hops out. Escalate Vela to manual review.'}
+      : key==='ubo'?{t:'Monitor',tone:'watch',txt:'Common control spans 2 active businesses. Extend the same monitoring policy to both.'}
+      : {t:'Note',tone:'low',txt:'A shared commercial address — weak on its own. Record for context; no action needed.'};
+    const vc=this.RISK[verdict.tone].c;
+    return h('div',{style:{background:'#fff',border:'1px solid var(--border)',borderRadius:16,borderTopLeftRadius:4,padding:'20px 22px',maxWidth:760,display:'flex',flexDirection:'column',gap:16}},
+      this.midAttrib(),
+      h('div',null,
+        h('div',{style:{display:'flex',alignItems:'baseline',gap:10,flexWrap:'wrap'}}, h('span',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:27,lineHeight:1.05}},Q.conns.length+' businesses'), h('span',{style:{fontSize:14,color:'var(--midnight-60)'}},(key==='address'?'share this address':'share a common '+Q.attr.toLowerCase())), this.pill(this.RISK[Q.risk].label+' network risk',Q.risk)),
+        h('div',{style:{fontSize:13,color:'var(--midnight)',marginTop:7,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, this.pill(Q.attr,'mute'), h('span',{style:{fontWeight:500}},Q.value)),
+        h('p',{style:{margin:'10px 0 0',fontSize:13,lineHeight:1.55,color:'var(--midnight-80)'}},Q.note)),
+      h('div',null, this.mono('Connected businesses',{color:'var(--midnight-60)',display:'block',marginBottom:9}), this.connRows(ranked)),
+      h('div',{style:{background:'var(--midnight)',borderRadius:14,overflow:'hidden'}},
+        h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',borderBottom:'1px solid #173B43'}}, this.mono('How the connections hold together',{color:'#7FA6B0'}), this.pathToggle()),
+        h('div',{style:{height:280}}, this.graphCanvas([g.center,...g.nodes],g.edges,{timeIdx:null,showPath:this.state.showPath!==false}))),
+      h('div',{style:{background:'color-mix(in srgb, '+vc+' 9%, #fff)',border:'1px solid color-mix(in srgb, '+vc+' 26%, #fff)',borderRadius:13,padding:'15px 18px'}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:10}}, this.mono('What to act on',{color:vc}), this.pill(verdict.t,verdict.tone)),
+        h('p',{style:{margin:'9px 0 0',fontSize:13.5,lineHeight:1.5,color:'var(--midnight)'}},verdict.txt)));
+  }
+  midAttrib(){ const h=React.createElement;
+    return h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:4}},
+      h('span',{style:{width:22,height:22,borderRadius:6,background:'var(--midnight)',display:'inline-flex',alignItems:'center',justifyContent:'center'}}, h('svg',{width:11,height:6,viewBox:'0 0 30 16',fill:'var(--lime)'}, h('path',{d:'M14.868 15.99V15.995H17.8334V13.2048V13.2011H17.8294L4.14417 0H1.18008V2.79517L14.868 15.99ZM0 15.995H4.48643V11.7661H0V15.995ZM26.7415 15.99V15.995H29.7069V13.2048V13.2011H29.7029L22.8603 6.60055L16.0177 0H13.0536V2.79517L26.7415 15.99Z'})) ),
+      this.mono('Middesk',{color:'var(--midnight-60)'})); }
+
+  intelChat(){ const h=React.createElement; const chat=this.state.chat||[]; const empty=chat.length===0;
+    const scopes=[
+      {tag:'A single identity', desc:'Everything about one business.', qs:['How old is Vela Logistics and who controls it?','Summarize the risk on Vela Logistics, Inc.']},
+      {tag:'An attribute or network', desc:'Businesses linked by a shared data point.', qs:['What businesses share the officer Marcus Okonkwo?','What businesses share the 4400 Wilshire Blvd address?']},
+      {tag:'Your whole portfolio', desc:'Trends and risk across every identity in the account.', qs:['Show me trends across my portfolio','Which identities carry the most network risk?']},
+    ];
+    const scopeGallery=h('div',{style:{display:'grid',gridTemplateColumns:'repeat(3, 1fr)',gap:14,marginTop:6}}, ...scopes.map((s,i)=>
+      h('div',{key:i,style:{border:'1px solid var(--border)',borderRadius:16,background:'#fff',padding:'16px 16px 12px',display:'flex',flexDirection:'column',gap:4}},
+        h('div',{style:{fontSize:14,fontWeight:500,color:'var(--midnight)'}},s.tag),
+        h('div',{style:{fontSize:12,color:'var(--midnight-60)',lineHeight:1.4,marginBottom:8}},s.desc),
+        h('div',{style:{display:'flex',flexDirection:'column',gap:7,marginTop:'auto'}}, ...s.qs.map((q,j)=>
+          h('button',{key:j,onClick:()=>this.askIntel(q),style:{textAlign:'left',padding:'9px 11px',borderRadius:10,border:'1px solid var(--border)',background:'var(--snow)',cursor:'pointer',fontSize:12.5,color:'var(--midnight)',fontFamily:'inherit',lineHeight:1.35}},q))))));
+    const composer=h('div',{style:{borderTop:'1px solid var(--border)',background:'#fff',padding:'14px 24px 16px'}},
+      h('div',{style:{maxWidth:820,margin:'0 auto'}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:12,padding:'12px 16px',border:'1px solid var(--border)',borderRadius:13,background:'var(--snow)'}},
+          h('svg',{width:16,height:16,viewBox:'0 0 24 24',fill:'none',stroke:'var(--midnight-40)',strokeWidth:2,style:{flexShrink:0}}, h('path',{d:'M12 2a10 10 0 1 0 4.5 18.9L22 22l-1.1-5.5A10 10 0 0 0 12 2z'})),
+          h('input',{value:this.state.chatInput,placeholder:'Ask about any identity, an attribute, or your whole portfolio…',
+            onChange:(e)=>this.setState({chatInput:e.target.value}),
+            onKeyDown:(e)=>{ if(e.key==='Enter') this.askIntel(this.state.chatInput); },
+            style:{flex:1,minWidth:0,border:0,outline:'none',background:'transparent',font:'400 15px var(--font-sans)',color:'var(--midnight)'}}),
+          h('button',{onClick:()=>this.askIntel(this.state.chatInput),style:{width:34,height:34,borderRadius:9,border:0,background:'var(--midnight)',color:'var(--snow)',cursor:'pointer',fontSize:15,flexShrink:0}},'→')),
+        empty?null:h('div',{style:{display:'flex',gap:8,marginTop:10,flexWrap:'wrap'}}, ...this.intelPrompts.map((p,i)=>
+          h('button',{key:i,onClick:()=>this.askIntel(p),style:{padding:'6px 11px',borderRadius:9999,border:'1px solid var(--border)',background:'#fff',cursor:'pointer',fontSize:12,color:'var(--midnight-80)',fontFamily:'inherit'}},p)))));
+    return h('div',{style:{height:'calc(100vh - 57px)',display:'flex',flexDirection:'column'}},
+      h('div',{id:'intel-msgs',style:{flex:1,overflowY:'auto'}},
+        h('div',{style:{maxWidth:empty?920:820,margin:'0 auto',padding:'26px 24px 10px',display:'flex',flexDirection:'column',gap:18}},
+          h('div',{style:{maxWidth:680}}, this.midAttrib(),
+            h('div',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:empty?26:18,lineHeight:1.15,margin:'8px 0 6px'}},'Ask anything across your identities and their networks'),
+            h('p',{style:{margin:0,fontSize:13.5,lineHeight:1.55,color:'var(--midnight-80)'}},'Start from a question, a data attribute, or a whole portfolio and I\u2019ll assemble a structured answer from 400+ sources — connected identities, how strong each link is, the risk that travels through them, and what to act on.')),
+          empty?scopeGallery:null,
+          ...chat.map((it,i)=> h('div',{key:i,style:{display:'flex',flexDirection:'column',gap:14}},
+            h('div',{style:{alignSelf:'flex-end',maxWidth:'80%',background:'var(--midnight)',color:'var(--snow)',padding:'11px 16px',borderRadius:16,borderBottomRightRadius:4,fontSize:14,lineHeight:1.4}},it.q),
+            this.assembledAnswer(it))))),
+      composer);
+  }
+
+  A_intel(){
+    const h=React.createElement; const q=this.queries[this.state.query]; const E=this.entities;
+    const qbtn=(label,k)=> h('button',{onClick:()=>this.setS({query:k}),style:{padding:'9px 14px',border:'1px solid '+(this.state.query===k?'var(--midnight)':'var(--border)'),background:this.state.query===k?'var(--midnight)':'#fff',color:this.state.query===k?'var(--snow)':'var(--midnight-80)',borderRadius:10,cursor:'pointer',fontSize:12.5,transition:'all .18s'}},label);
+    const groups=[['strong','Strong connections'],['moderate','Moderate connections'],['weak','Weak connections']];
+    return h('div',{style:{padding:'26px 32px 44px',maxWidth:1280,margin:'0 auto',display:'flex',flexDirection:'column',gap:18}},
+      // open query bar — type an attribute or attach a document
+      this.intelInputBar(q),
+      h('p',{style:{margin:'0 4px',fontSize:13,lineHeight:1.5,color:'var(--midnight-80)',maxWidth:760}},q.note),
+      // connection groups
+      ...groups.map(([str,title])=>{
+        const rows=q.conns.filter(c=>c.strength===str); if(!rows.length) return null;
+        return this.panel({},
+          this.panelHead(title, this.mono(rows.length+' '+(rows.length===1?'business':'businesses'))),
+          h('div',{style:{padding:'4px 0'}}, ...rows.map((c,i)=>{
+            const e=E[c.id]; const rc=this.RISK[c.risk].c;
+            return h('div',{key:c.id,style:{display:'grid',gridTemplateColumns:'auto 1fr auto auto',gap:16,alignItems:'center',padding:'15px 22px',borderBottom:i<rows.length-1?'1px solid var(--border)':'none',background:c.self?'color-mix(in srgb, var(--lime) 7%, #fff)':'transparent'}},
+              h('span',{style:{width:34,height:34,borderRadius:e.kind==='person'?'50%':9,background:'var(--fog)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--font-mono)',fontSize:11,color:'var(--midnight-80)',flexShrink:0}}, e.name.split(' ').slice(0,2).map(w=>w[0]).join('')),
+              h('div',{style:{minWidth:0}}, h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, h('span',{style:{fontSize:14,fontWeight:500}},e.name), c.self?this.pill('This business','low',{fontSize:9}):null),
+                h('div',{style:{fontSize:12,color:'var(--midnight-60)',marginTop:3}}, e.type+' · '+c.ctype+(c.pct?(' · '+c.pct+'%'):'')+' — '+c.ev)),
+              this.strengthMeter(c.strength),
+              this.pill(this.RISK[c.risk].label,c.risk));
+          })));
+      }),
+      // act on
+      h('div',{style:{background:'var(--midnight)',color:'var(--snow)',borderRadius:18,padding:'22px 26px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:24,flexWrap:'wrap'}},
+        h('div',{style:{maxWidth:640}}, this.mono('What to act on',{color:'#7FA6B0'}),
+          h('div',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:23,lineHeight:1.15,margin:'8px 0 6px',color:'var(--snow)'}},'Risk travels into Vela through ownership it cannot see alone.'),
+          h('p',{style:{margin:0,fontSize:13,color:'#A0C1CB',lineHeight:1.5}},'A high-risk entity — Stillwater Imports — sits three hops out via a shared officer and a common holding company. Switch to the Graph exploration to trace the path.')),
+        h('button',{onClick:()=>this.setS({direction:'B',view:'intelligence'}),style:{display:'inline-flex',alignItems:'center',gap:10,padding:'12px 18px',borderRadius:12,border:0,background:'var(--snow)',color:'var(--midnight)',cursor:'pointer',fontSize:13.5,whiteSpace:'nowrap'}},'Trace in graph',h('span',{style:{width:26,height:26,borderRadius:7,background:'var(--lime)',display:'inline-flex',alignItems:'center',justifyContent:'center'}},'→'))));
+  }
+  strengthMeter(s){
+    const h=React.createElement; const n={weak:1,moderate:2,strong:3}[s]; const c=s==='strong'?'var(--midnight)':s==='moderate'?'var(--midnight-60)':'var(--midnight-40)';
+    return h('div',{style:{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:5}},
+      h('div',{style:{display:'flex',gap:3}}, ...[0,1,2].map(i=>h('span',{key:i,style:{width:18,height:5,borderRadius:3,background:i<n?c:'var(--border)'}}))),
+      this.mono(s));
+  }
+
+  /* ---------- placeholders ---------- */
+  soon(label){ return React.createElement('div',{style:{padding:'80px 32px',textAlign:'center',color:'var(--midnight-60)',fontSize:14}}, label+' — building next'); }
+  /* =====================================================
+     DIRECTION B — GRAPH (relationship-first)
+  ===================================================== */
+  bNodes(){ return [
+    {id:'vela',x:540,y:376,since:0,center:true},
+    {id:'okonkwo',x:300,y:104,since:0},
+    {id:'meridian',x:540,y:188,since:5},
+    {id:'nguyen',x:224,y:388,since:2},
+    {id:'anchor',x:856,y:160,since:5},
+    {id:'harbor',x:830,y:392,since:0},
+    {id:'reyes',x:1030,y:262,since:0},
+    {id:'stillwater',x:952,y:596,since:0},
+    {id:'cedar',x:300,y:628,since:3},
+    {id:'brightpath',x:580,y:632,since:3},
+  ]; }
+  bEdges(){ return [
+    {a:'okonkwo',b:'vela',type:'Owns 100%',strength:'strong',risk:'low',dir:true,since:0,until:4,ev:'Direct owner of record, 2019–2026'},
+    {a:'meridian',b:'vela',type:'Owns 60%',strength:'strong',risk:'watch',dir:true,since:5,path:true,ev:'FinCEN BOI · controlling interest since Apr 2026'},
+    {a:'okonkwo',b:'meridian',type:'Owns 75%',strength:'strong',risk:'low',dir:true,since:5,path:true,ev:'FinCEN BOI filing'},
+    {a:'nguyen',b:'vela',type:'Owns 15%',strength:'moderate',risk:'clear',dir:true,since:2,ev:'CA SoS officer record + BOI'},
+    {a:'meridian',b:'anchor',type:'Owns 100%',strength:'strong',risk:'low',dir:true,since:5,ev:'FinCEN BOI · wholly owned'},
+    {a:'okonkwo',b:'harbor',type:'Officer',strength:'strong',risk:'watch',dir:false,since:0,path:true,ev:'Director on both CA SoS records'},
+    {a:'reyes',b:'harbor',type:'Officer',strength:'strong',risk:'elev',dir:false,since:0,path:true,ev:'Co-officer at Harbor Freight'},
+    {a:'reyes',b:'stillwater',type:'Owns 80%',strength:'strong',risk:'high',dir:true,since:0,path:true,ev:'FinCEN BOI filing'},
+    {a:'vela',b:'cedar',type:'Shared address',strength:'weak',risk:'clear',dir:false,since:3,ev:'4400 Wilshire Blvd · commercial'},
+    {a:'vela',b:'brightpath',type:'Shared address',strength:'weak',risk:'clear',dir:false,since:3,ev:'4400 Wilshire Blvd · commercial'},
+  ]; }
+
+  graphCanvas(nodes,edges,opt){
+    const h=React.createElement; const E=this.entities; const sel=this.state.sel; const ti=opt.timeIdx;
+    const meta=n=> n.attr?{name:n.label,risk:n.risk,kind:'attr',sub:n.sub}:E[n.id];
+    const visN=n=>(ti==null)||(n.since<=ti&&(n.until==null||ti<=n.until));
+    const visE=e=>(ti==null)||(e.since<=ti&&(e.until==null||ti<=e.until));
+    const pos={},nmap={}; nodes.forEach(n=>{pos[n.id]={x:n.x,y:n.y};nmap[n.id]=n;});
+    const rad=n=> n.attr?44:(n.center?30:(E[n.id].kind==='person'?19:23));
+    const eEls=[],aEls=[];
+    edges.forEach((e,i)=>{ if(!visE(e))return; const A=pos[e.a],B=pos[e.b]; if(!A||!B)return;
+      const dx=B.x-A.x,dy=B.y-A.y,len=Math.hypot(dx,dy)||1,ux=dx/len,uy=dy/len;
+      const rA=rad(nmap[e.a]),rB=rad(nmap[e.b]);
+      const x1=A.x+ux*rA,y1=A.y+uy*rA,x2=B.x-ux*(rB+(e.dir?6:0)),y2=B.y-uy*(rB+(e.dir?6:0));
+      const c=this.RISK[e.risk].c; const w={weak:1.5,moderate:2.5,strong:3.5}[e.strength];
+      const hi=opt.showPath&&e.path;
+      if(hi) eEls.push(h('line',{key:'g'+i,x1,y1,x2,y2,stroke:'var(--risk-high)',strokeWidth:w+6,strokeLinecap:'round',opacity:.16}));
+      eEls.push(h('line',{key:'e'+i,x1,y1,x2,y2,stroke:hi?'var(--risk-high)':'#2f565e',strokeWidth:w,strokeLinecap:'round',strokeDasharray:hi?'7 6':(e.strength==='weak'?'2 6':'none'),style:hi?{animation:'mdDash 1s linear infinite'}:null}));
+      if(e.dir){ const bx=x2-ux*8,by=y2-uy*8,px=-uy,py=ux,hw=4.5;
+        aEls.push(h('polygon',{key:'a'+i,points:x2+','+y2+' '+(bx+px*hw)+','+(by+py*hw)+' '+(bx-px*hw)+','+(by-py*hw),fill:hi?'var(--risk-high)':'#5a8089'})); }
+      if(e.type&&e.type.indexOf('Owns')===0){ const mx=(x1+x2)/2,my=(y1+y2)/2,pct=e.type.replace('Owns ','');
+        aEls.push(h('g',{key:'l'+i,transform:'translate('+mx+','+my+')'}, h('rect',{x:-18,y:-9,width:36,height:18,rx:5,fill:'#0e353d',stroke:'#2f565e'}), h('text',{x:0,y:3.5,textAnchor:'middle',fontSize:9.5,fontFamily:'var(--font-mono)',fill:'#A0C1CB'},pct))); }
+    });
+    const nEls=nodes.filter(visN).map(n=>{ const m=meta(n); const r=rad(n); const c=this.RISK[m.risk].c; const isSel=sel===n.id;
+      const init=m.name.split(' ').slice(0,2).map(w=>w[0]).join('');
+      if(n.attr){ return h('g',{key:n.id,transform:'translate('+n.x+','+n.y+')'},
+        h('rect',{x:-78,y:-26,width:156,height:52,rx:12,fill:'color-mix(in srgb, var(--lime) 15%, var(--midnight))',stroke:'var(--lime)',strokeWidth:1.5}),
+        h('text',{y:-6,textAnchor:'middle',fontSize:9.5,fontFamily:'var(--font-mono)',letterSpacing:'.05em',fill:'var(--lime)'},(m.sub||'Attribute').toUpperCase()),
+        h('text',{y:13,textAnchor:'middle',fontSize:13,fontFamily:'var(--font-sans)',fill:'var(--snow)'},m.name.length>20?m.name.slice(0,19)+'…':m.name)); }
+      return h('g',{key:n.id,transform:'translate('+n.x+','+n.y+')',style:{cursor:'pointer'},onClick:()=>this.setS({sel:isSel?null:n.id})},
+        isSel?h('circle',{r:r+8,fill:'none',stroke:'var(--lime)',strokeWidth:2}):null,
+        n.center?h('circle',{r:r+6,fill:'none',stroke:'var(--lime)',strokeWidth:1.5,opacity:.45}):null,
+        h('circle',{r,fill:'#0e353d',stroke:c,strokeWidth:n.center?2.5:2,strokeDasharray:m.kind==='person'?'3 3':'none'}),
+        h('text',{y:4,textAnchor:'middle',fontSize:n.center?13:11,fontFamily:'var(--font-mono)',fill:'var(--snow)'},init),
+        h('text',{y:r+15,textAnchor:'middle',fontSize:10.5,fontFamily:'var(--font-sans)',fill:isSel?'var(--snow)':'#C2D6DB'},m.name.length>22?m.name.slice(0,20)+'…':m.name));
+    });
+    return h('svg',{viewBox:opt.viewBox||'0 0 880 560',preserveAspectRatio:'xMidYMid meet',style:{width:'100%',height:'100%',display:'block'}}, ...eEls, ...aEls, ...nEls);
+  }
+
+  KINDCOL(kind){ return kind==='person'?'#6B5CA5':kind==='address'?'#B0863C':kind==='phone'?'#B85C7A':kind==='website'?'#3E7CB1':'#2D6A6A'; }
+  octPath(A,B,rA,rB,bendR){
+    const dx=B.x-A.x, dy=B.y-A.y; const adx=Math.abs(dx),ady=Math.abs(dy); const sx=Math.sign(dx),sy=Math.sign(dy);
+    // near-straight or pure-diagonal → single segment
+    if(adx<2||ady<2||Math.abs(adx-ady)<2){
+      const len=Math.hypot(dx,dy)||1, ux=dx/len, uy=dy/len;
+      const p0={x:A.x+ux*rA,y:A.y+uy*rA}, p2={x:B.x-ux*rB,y:B.y-uy*rB};
+      return {d:'M'+p0.x+' '+p0.y+' L'+p2.x+' '+p2.y, end:p2, bend:null, dir1:{x:ux,y:uy}, dir2:{x:ux,y:uy}};
+    }
+    // diagonal leaves A first, then orthogonal into B (obtuse bend)
+    let bend; if(adx>ady){ bend={x:A.x+sx*ady, y:B.y}; } else { bend={x:B.x, y:A.y+sy*adx}; }
+    const d1={x:Math.sign(bend.x-A.x),y:Math.sign(bend.y-A.y)}; const l1=Math.hypot(bend.x-A.x,bend.y-A.y)||1; const u1={x:(bend.x-A.x)/l1,y:(bend.y-A.y)/l1};
+    const d2={x:Math.sign(B.x-bend.x),y:Math.sign(B.y-bend.y)}; const l2=Math.hypot(B.x-bend.x,B.y-bend.y)||1; const u2={x:(B.x-bend.x)/l2,y:(B.y-bend.y)/l2};
+    const p0={x:A.x+u1.x*rA,y:A.y+u1.y*rA}; const p2={x:B.x-u2.x*rB,y:B.y-u2.y*rB};
+    const r=Math.min(bendR, l1*0.5-rA*0.5, l2*0.5-rB*0.5); const rr=Math.max(0,r);
+    const c1={x:bend.x-u1.x*rr,y:bend.y-u1.y*rr}; const c2={x:bend.x+u2.x*rr,y:bend.y+u2.y*rr};
+    return {d:'M'+p0.x+' '+p0.y+' L'+c1.x+' '+c1.y+' Q'+bend.x+' '+bend.y+' '+c2.x+' '+c2.y+' L'+p2.x+' '+p2.y, end:p2, bend:bend, dir1:u1, dir2:u2};
+  }
+  transitCanvas(nodes,edges,opt){
+    const h=React.createElement; const E=this.entities; const sel=this.state.sel; const ti=opt.timeIdx;
+    const meta=n=> n.attr?{name:n.label,risk:n.risk,kind:'address',sub:n.sub}:E[n.id];
+    const visN=n=>(ti==null)||(n.since<=ti&&(n.until==null||ti<=n.until));
+    const visE=e=>(ti==null)||(e.since<=ti&&(e.until==null||ti<=e.until));
+    const pos={},nmap={}; nodes.forEach(n=>{pos[n.id]={x:n.x,y:n.y};nmap[n.id]=n;});
+    const centerId=(nodes.find(n=>n.center)||{}).id;
+    const firstDeg={}; edges.forEach(e=>{ if(!visE(e))return; if(e.a===centerId)firstDeg[e.b]=1; if(e.b===centerId)firstDeg[e.a]=1; });
+    const tier=n=> n.center?'focus':(firstDeg[n.id]?'lit':'world');
+    const rad=n=>{ const t=tier(n); return t==='focus'?30:t==='lit'?26:14; };
+    const RC={clear:null,low:null,watch:'var(--risk-watch)',elev:'var(--risk-elev)',high:'var(--risk-high)'};
+    // edges
+    const eEls=[],chipEls=[];
+    edges.forEach((e,i)=>{ if(!visE(e))return; const A=pos[e.a],B=pos[e.b]; if(!A||!B)return;
+      const g=this.octPath(A,B,rad(nmap[e.a])+3,rad(nmap[e.b])+3,12);
+      const kc=this.KINDCOL((meta(nmap[e.a]).kind==='person'||meta(nmap[e.b]).kind==='person')?'person':(meta(nmap[e.a]).kind==='address'||meta(nmap[e.b]).kind==='address'?'address':'business'));
+      const hop=e.strength==='weak'; const w={weak:1.25,moderate:1.75,strong:2.5}[e.strength]||1.75;
+      const hi=opt.showPath&&e.path;
+      const lineLen=Math.hypot(B.x-A.x,B.y-A.y); const op=hop?0.5:Math.max(0.42,1-lineLen/1100);
+      if(hi) eEls.push(h('path',{key:'gh'+i,d:g.d,fill:'none',stroke:'var(--risk-high)',strokeWidth:w+7,strokeLinecap:'round',strokeLinejoin:'round',opacity:.14}));
+      eEls.push(h('path',{key:'e'+i,d:g.d,fill:'none',stroke:hi?'var(--risk-high)':kc,strokeWidth:w,strokeLinecap:'round',strokeLinejoin:'round',opacity:hi?0.95:op,strokeDasharray:hop?'1 7':(hi?'8 6':'none'),strokeDashoffset:hop?0:undefined,style:hi?{animation:'mdDash 1s linear infinite'}:null}));
+      if(e.dir){ const bx=g.end.x-g.dir2.x*8,by=g.end.y-g.dir2.y*8,px=-g.dir2.y,py=g.dir2.x,hw=4.5;
+        eEls.push(h('polygon',{key:'a'+i,points:g.end.x+','+g.end.y+' '+(bx+px*hw)+','+(by+py*hw)+' '+(bx-px*hw)+','+(by-py*hw),fill:hi?'var(--risk-high)':kc,opacity:hi?.95:Math.max(.5,op)})); }
+      if(e.type&&e.type.indexOf('Owns')===0&&!hop){ const chipP=g.bend||{x:(A.x+B.x)/2,y:(A.y+B.y)/2}; const pct=e.type.replace('Owns ','');
+        chipEls.push(h('g',{key:'l'+i,transform:'translate('+chipP.x+','+chipP.y+')'}, h('rect',{x:-19,y:-10,width:38,height:20,rx:6,fill:'#fff',stroke:'var(--border)'}), h('text',{x:0,y:4,textAnchor:'middle',fontSize:10.5,fontFamily:'var(--font-mono)',fontWeight:600,fill:'var(--midnight-80)'},pct))); }
+    });
+    // nodes: mark + nameplate
+    const nEls=[]; nodes.filter(visN).forEach(n=>{ const m=meta(n); const t=tier(n); const r=rad(n); const kc=this.KINDCOL(m.kind); const isSel=sel===n.id;
+      const rc=RC[m.risk]; const init=m.name.split(' ').filter(Boolean).slice(0,2).map(w=>w[0]).join('');
+      const isPerson=m.kind==='person';
+      let mark;
+      if(t==='world'){
+        mark = isPerson
+          ? h('circle',{r:r*0.62,fill:'#fff',stroke:kc,strokeWidth:2.5})
+          : h('rect',{x:-r*0.55,y:-r*0.55,width:r*1.1,height:r*1.1,rx:3,fill:'#fff',stroke:kc,strokeWidth:2.5});
+      } else {
+        const tile = isPerson
+          ? h('circle',{r,fill:kc})
+          : h('rect',{x:-r,y:-r,width:r*2,height:r*2,rx:t==='focus'?9:7,fill:kc});
+        mark = h('g',null, tile, h('text',{y:t==='focus'?6:5.5,textAnchor:'middle',fontSize:t==='focus'?16:14,fontFamily:'var(--font-mono)',fontWeight:600,fill:'#fff'},init));
+      }
+      // nameplate card (skip full card for world unless selected; show ring only otherwise)
+      const showCard = t!=='world' || isSel;
+      const cardY = r + 9;
+      const nm = m.name.length>24?m.name.slice(0,22)+'…':m.name;
+      const sub = (t==='focus'? (m.type+' · '+m.sub) : m.sub) || '';
+      const cw = Math.max(nm.length,(sub||'').length)*7+24; const cwc=Math.min(210,Math.max(70,cw));
+      const card = showCard? h('g',{transform:'translate(0,'+cardY+')'},
+        h('rect',{x:-cwc/2,y:0,width:cwc,height:sub?36:22,rx:5,fill:'#fff',stroke:'var(--border)'}),
+        h('text',{x:0,y:15,textAnchor:'middle',fontSize:13.5,fontFamily:'var(--font-sans)',fontWeight:600,letterSpacing:'-0.01em',fill:'var(--midnight)'},nm),
+        sub?h('text',{x:0,y:29,textAnchor:'middle',fontSize:10.5,fontFamily:'var(--font-sans)',fill:'var(--midnight-60)'},sub.length>30?sub.slice(0,29)+'…':sub):null) : null;
+      nEls.push(h('g',{key:n.id,transform:'translate('+n.x+','+n.y+')',style:{cursor:'pointer'},onClick:()=>this.setS({sel:isSel?null:n.id})},
+        isSel?(isPerson?h('circle',{r:r+7,fill:'none',stroke:'var(--lime)',strokeWidth:2}):h('rect',{x:-(r+7),y:-(r+7),width:(r+7)*2,height:(r+7)*2,rx:11,fill:'none',stroke:'var(--lime)',strokeWidth:2})):null,
+        (t==='focus'&&!isSel)?h('rect',{x:-(r+6),y:-(r+6),width:(r+6)*2,height:(r+6)*2,rx:11,fill:'none',stroke:'var(--midnight)',strokeWidth:1.5,opacity:.35}):null,
+        rc?(isPerson?h('circle',{r:r+5,fill:'none',stroke:rc,strokeWidth:2}):h('rect',{x:-(r+5),y:-(r+5),width:(r+5)*2,height:(r+5)*2,rx:9,fill:'none',stroke:rc,strokeWidth:2})):null,
+        mark, card));
+    });
+    return h('svg',{viewBox:opt.viewBox||'0 0 1160 720',preserveAspectRatio:'xMidYMid meet',style:{width:'100%',height:'100%',display:'block'}},
+      h('defs',null, h('pattern',{id:'regcross',width:80,height:80,patternUnits:'userSpaceOnUse'}, h('path',{d:'M40 36 V44 M36 40 H44',stroke:'var(--midnight)',strokeWidth:1,opacity:.09}))),
+      h('rect',{x:0,y:0,width:1160,height:720,fill:'url(#regcross)'}),
+      ...eEls, ...chipEls, ...nEls);
+  }
+  transitLegend(){ const h=React.createElement;
+    const kind=(c,shape,label)=>h('div',{style:{display:'flex',alignItems:'center',gap:8,fontSize:11.5,color:'var(--midnight-80)'}}, h('svg',{width:16,height:16}, shape==='circle'?h('circle',{cx:8,cy:8,r:6,fill:c}):h('rect',{x:2,y:2,width:12,height:12,rx:2.5,fill:c})),label);
+    const risk=(c,label)=>h('div',{style:{display:'flex',alignItems:'center',gap:8,fontSize:11.5,color:'var(--midnight-80)'}}, h('svg',{width:16,height:16}, h('circle',{cx:8,cy:8,r:6,fill:'none',stroke:c,strokeWidth:2})),label);
+    return h('div',{style:{display:'flex',flexDirection:'column',gap:9}},
+      kind(this.KINDCOL('business'),'rect','Business'),
+      kind(this.KINDCOL('person'),'circle','Person'),
+      h('div',{style:{height:1,background:'var(--border)',margin:'3px 0'}}),
+      risk('var(--risk-watch)','Watch'), risk('var(--risk-elev)','Elevated'), risk('var(--risk-high)','High'),
+      h('div',{style:{display:'flex',alignItems:'center',gap:8,fontSize:11.5,color:'var(--midnight-80)',marginTop:2}}, h('svg',{width:20,height:8}, h('line',{x1:1,y1:4,x2:19,y2:4,stroke:'var(--risk-high)',strokeWidth:3,strokeDasharray:'5 4'})),'Risk path'));
+  }
+
+  pathToggleLight(){ const on=this.state.showPath!==false; const h=React.createElement;
+    return h('button',{onClick:()=>this.setState({showPath:!on}),style:{display:'inline-flex',alignItems:'center',gap:8,padding:'7px 12px',borderRadius:9,border:'1px solid '+(on?'var(--risk-high)':'var(--border)'),background:on?'color-mix(in srgb, var(--risk-high) 8%, #fff)':'#fff',color:on?'var(--risk-high)':'var(--midnight-60)',cursor:'pointer',fontFamily:'var(--font-mono)',fontSize:10.5,letterSpacing:'.05em',textTransform:'uppercase'}}, h('span',{style:{width:8,height:8,borderRadius:'50%',background:on?'var(--risk-high)':'var(--midnight-20)'}}),'Risk path'); }
+
+  pathToggle(){ const on=this.state.showPath!==false; const h=React.createElement;
+    return h('button',{onClick:()=>this.setState({showPath:!on}),style:{display:'inline-flex',alignItems:'center',gap:8,padding:'7px 12px',borderRadius:9,border:'1px solid '+(on?'var(--risk-high)':'#2f565e'),background:on?'color-mix(in srgb, var(--risk-high) 18%, var(--midnight))':'transparent',color:on?'#F0A07a':'#A0C1CB',cursor:'pointer',fontFamily:'var(--font-mono)',fontSize:10.5,letterSpacing:'.05em',textTransform:'uppercase'}}, h('span',{style:{width:8,height:8,borderRadius:'50%',background:on?'var(--risk-high)':'#2f565e'}}),'Risk path'); }
+
+  legendRow(){ const h=React.createElement;
+    const swatch=(c,label)=>h('div',{style:{display:'flex',alignItems:'center',gap:7,fontSize:11,color:'#A0C1CB'}}, h('span',{style:{width:9,height:9,borderRadius:'50%',background:c}}),label);
+    return h('div',{style:{display:'flex',flexDirection:'column',gap:8}},
+      h('div',{style:{display:'flex',flexWrap:'wrap',gap:'8px 14px'}}, swatch('var(--risk-clear)','Clear'), swatch('var(--risk-watch)','Watch'), swatch('var(--risk-elev)','Elevated'), swatch('var(--risk-high)','High')),
+      h('div',{style:{display:'flex',gap:16,marginTop:4}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:7,fontSize:11,color:'#A0C1CB'}}, h('span',{style:{width:18,height:3.5,borderRadius:3,background:'#5a8089'}}),'Strong'),
+        h('div',{style:{display:'flex',alignItems:'center',gap:7,fontSize:11,color:'#A0C1CB'}}, h('span',{style:{width:18,height:2,borderRadius:3,background:'#5a8089'}}),'Weak')),
+      h('div',{style:{display:'flex',gap:16,marginTop:2}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:7,fontSize:11,color:'#A0C1CB'}}, h('svg',{width:16,height:16}, h('circle',{cx:8,cy:8,r:6,fill:'none',stroke:'#5a8089',strokeWidth:2})),'Business'),
+        h('div',{style:{display:'flex',alignItems:'center',gap:7,fontSize:11,color:'#A0C1CB'}}, h('svg',{width:16,height:16}, h('circle',{cx:8,cy:8,r:6,fill:'none',stroke:'#5a8089',strokeWidth:2,strokeDasharray:'2.5 2.5'})),'Person')));
+  }
+
+  bDrawer(nodes,edges,ti){
+    const h=React.createElement; const E=this.entities; const sel=this.state.sel;
+    const wrap=(...k)=>h('div',{style:{width:316,flexShrink:0,borderLeft:'1px solid #173B43',background:'#0e353d',padding:'18px 20px',overflowY:'auto',color:'var(--snow)'}},...k);
+    if(sel&&E[sel]){ const e=E[sel];
+      const rel=edges.filter(x=>(x.a===sel||x.b===sel)&&((ti==null)||(x.since<=ti&&(x.until==null||ti<=x.until))));
+      return wrap(
+        h('button',{onClick:()=>this.setS({sel:null}),style:{background:'none',border:0,color:'#7FA6B0',cursor:'pointer',fontSize:12,padding:0,marginBottom:14}},'← Overview'),
+        this.mono(e.kind==='person'?'Person':'Business',{color:'#7FA6B0'}),
+        h('div',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:23,lineHeight:1.12,margin:'5px 0 4px'}},e.name),
+        h('div',{style:{fontSize:12.5,color:'#A0C1CB',marginBottom:12}},e.type+' · '+e.sub),
+        this.pill(this.RISK[e.risk].label+' risk',e.risk),
+        h('div',{style:{margin:'18px 0 6px'}},this.mono('Relationships',{color:'#7FA6B0'})),
+        ...rel.map((x,i)=>{ const other=E[x.a===sel?x.b:x.a]; const rc=this.RISK[x.risk].c;
+          return h('div',{key:i,style:{padding:'11px 0',borderBottom:i<rel.length-1?'1px solid #173B43':'none'}},
+            h('div',{style:{display:'flex',justifyContent:'space-between',gap:8,alignItems:'flex-start'}}, h('span',{style:{fontSize:13}},other?other.name:x.b), h('span',{style:{width:8,height:8,borderRadius:'50%',background:rc,marginTop:5,flexShrink:0}})),
+            h('div',{style:{fontSize:11.5,color:'#A0C1CB',marginTop:3}}, x.type+' · '+x.strength+' link'),
+            h('div',{style:{fontSize:11,color:'#7FA6B0',marginTop:3,lineHeight:1.4}}, x.ev)); }));
+    }
+    const visN=nodes.filter(n=>n.center||((ti==null)||(n.since<=ti&&(n.until==null||ti<=n.until)))).filter(n=>!n.attr);
+    const high=visN.filter(n=>E[n.id]&&E[n.id].risk==='high').length;
+    return wrap(
+      this.mono('Network overview',{color:'#7FA6B0'}),
+      h('div',{style:{display:'flex',gap:24,margin:'12px 0 18px'}},
+        h('div',null, h('div',{style:{fontFamily:'var(--font-serif)',fontSize:34,fontWeight:300,lineHeight:1}},visN.length), this.mono('entities',{color:'#7FA6B0'})),
+        h('div',null, h('div',{style:{fontFamily:'var(--font-serif)',fontSize:34,fontWeight:300,lineHeight:1,color:'#E08a5a'}},high), this.mono('high-risk',{color:'#7FA6B0'}))),
+      (this.state.showPath!==false)?h('div',{style:{padding:'12px 14px',borderRadius:12,background:'color-mix(in srgb, var(--risk-high) 15%, #0e353d)',border:'1px solid color-mix(in srgb, var(--risk-high) 38%, #0e353d)',marginBottom:18}},
+        this.mono('Risk path detected',{color:'#F0A07a'}),
+        h('div',{style:{fontSize:12.5,lineHeight:1.55,color:'#E3EEEF',marginTop:7}},'A high-risk entity links into Vela through ownership and a shared officer — invisible from this record alone:'),
+        h('div',{style:{fontSize:12,lineHeight:1.7,color:'#F0C4ad',marginTop:8,fontFamily:'var(--font-mono)',letterSpacing:'.01em'}},'Stillwater → J. Reyes → Harbor → Okonkwo → Meridian → Vela')):null,
+      this.mono('Legend',{color:'#7FA6B0'}),
+      h('div',{style:{marginTop:10}}, this.legendRow()),
+      h('div',{style:{marginTop:18,fontSize:11.5,color:'#7FA6B0',lineHeight:1.5}},'Click any node to inspect its relationships. Drag the timeline to watch the network take shape.'));
+  }
+
+  bScrubber(){
+    const h=React.createElement; const V=this.versions; const idx=this.state.timeIdx;
+    return h('div',{style:{padding:'12px 26px 14px',borderTop:'1px solid #173B43'}},
+      h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:14}},
+        h('div',null, this.mono('Identity over time',{color:'#7FA6B0'}), h('span',{style:{color:'var(--snow)',fontSize:13,marginLeft:12}},'As of '+V[idx].date+' · '+V[idx].title)),
+        this.mono('Version '+(idx+1)+' / '+V.length,{color:'#7FA6B0'})),
+      h('div',{style:{position:'relative',height:30}},
+        h('div',{style:{position:'absolute',top:6,left:7,right:7,height:2,background:'#2f565e'}}),
+        h('div',{style:{position:'absolute',top:6,left:7,width:'calc((100% - 14px) * '+(idx/(V.length-1))+')',height:2,background:'var(--lime)'}}),
+        h('div',{style:{position:'absolute',inset:0,display:'flex',justifyContent:'space-between'}},
+          ...V.map((v,i)=> h('button',{key:i,onClick:()=>this.setS({timeIdx:i}),title:v.title,style:{background:'none',border:0,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:7,padding:0}},
+            h('span',{style:{width:i===idx?14:10,height:i===idx?14:10,borderRadius:'50%',background:i<=idx?'var(--lime)':'var(--midnight)',border:'2px solid '+(i<=idx?'var(--lime)':'#2f565e'),transition:'all .2s'}}),
+            h('span',{style:{fontFamily:'var(--font-mono)',fontSize:9,letterSpacing:'.02em',color:i===idx?'var(--snow)':'#7FA6B0'}},v.date.split(', ')[0])))) ));
+  }
+
+  bNetworkOverview(nodes,edges,ti){
+    const h=React.createElement; const E=this.entities;
+    const visN=nodes.filter(n=>n.center||((ti==null)||(n.since<=ti&&(n.until==null||ti<=n.until)))).filter(n=>!n.attr);
+    const visE=edges.filter(e=>(ti==null)||(e.since<=ti&&(e.until==null||ti<=e.until)));
+    const high=visN.filter(n=>E[n.id]&&E[n.id].risk==='high').length;
+    const own=visE.filter(e=>e.type&&e.type.indexOf('Owns')===0).length;
+    const stat=(n,label,c)=>h('div',{style:{display:'flex',flexDirection:'column',gap:4}}, h('div',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:34,lineHeight:1,color:c||'var(--midnight)'}},n), this.mono(label,{color:'var(--midnight-60)'}));
+    return this.panel({}, this.panelHead('Network overview', this.mono('As of '+this.versions[ti].date)),
+      h('div',{style:{padding:'18px 22px',display:'flex',flexDirection:'column',gap:18}},
+        h('div',{style:{display:'flex',gap:36,flexWrap:'wrap'}}, stat(visN.length,'connected entities'), stat(own,'ownership links'), stat(high,'high-risk',high?'var(--risk-high)':'var(--midnight)')),
+        (this.state.showPath!==false)?h('div',{style:{display:'flex',gap:12,alignItems:'flex-start',padding:'14px 16px',borderRadius:12,background:'color-mix(in srgb, var(--risk-high) 7%, #fff)',border:'1px solid color-mix(in srgb, var(--risk-high) 24%, #fff)'}},
+          h('span',{style:{width:8,height:8,borderRadius:'50%',background:'var(--risk-high)',marginTop:5,flexShrink:0}}),
+          h('div',{style:{minWidth:0}}, this.mono('Risk path detected',{color:'var(--risk-high)',display:'block',marginBottom:5}),
+            h('div',{style:{fontSize:13,lineHeight:1.5,color:'var(--midnight-80)'}},'A high-risk entity links into Vela through ownership and a shared officer — invisible from this record alone.'),
+            h('div',{style:{fontSize:12,lineHeight:1.6,color:'var(--midnight-60)',marginTop:7,fontFamily:'var(--font-mono)',letterSpacing:'.01em'}},'Stillwater → J. Reyes → Harbor → Okonkwo → Meridian → Vela'))):null));
+  }
+
+  bEntityList(nodes,edges,ti){
+    const h=React.createElement; const E=this.entities; const sel=this.state.sel;
+    const uboIds={meridian:1,okonkwo:1}; // controlling beneficial owners of Vela
+    const visN=nodes.filter(n=>n.center||((ti==null)||(n.since<=ti&&(n.until==null||ti<=n.until)))).filter(n=>!n.attr);
+    const rank={high:4,elev:3,watch:2,low:1,clear:0};
+    const grp=(n)=> uboIds[n.id]?'ubo':(E[n.id].kind==='person'?'person':'business');
+    const sortFn=(a,b)=>{ if(a.center) return -1; if(b.center) return 1; return (rank[E[b.id].risk]||0)-(rank[E[a.id].risk]||0); };
+    const sections=[
+      {key:'ubo',label:'Beneficial owners (UBO)',note:'Controlling owners — who the business answers to'},
+      {key:'business',label:'Businesses',note:'Connected business entities'},
+      {key:'person',label:'Individuals',note:'Officers and people on record'},
+    ].map(s=>({...s,rows:visN.filter(n=>grp(n)===s.key).sort(sortFn)})).filter(s=>s.rows.length);
+    const row=(n,i,last)=>{ const e=E[n.id]; const open=sel===n.id;
+      const rel=edges.filter(x=>(x.a===n.id||x.b===n.id)&&((ti==null)||(x.since<=ti&&(x.until==null||ti<=x.until)))); const rc=this.RISK[e.risk].c;
+      return h('div',{key:n.id,style:{borderBottom:last?'none':'1px solid var(--border)',background:open?'var(--snow)':(n.center?'color-mix(in srgb, var(--lime) 6%, #fff)':'transparent')}},
+        h('button',{onClick:()=>this.setS({sel:open?null:n.id}),style:{display:'grid',gridTemplateColumns:'auto 1fr auto auto',gap:14,alignItems:'center',width:'100%',padding:'14px 22px',border:0,background:'transparent',cursor:'pointer',textAlign:'left',fontFamily:'inherit'}},
+          h('span',{style:{width:36,height:36,borderRadius:e.kind==='person'?'50%':9,background:'var(--fog)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--font-mono)',fontSize:11,color:'var(--midnight-80)',flexShrink:0}}, e.name.split(' ').slice(0,2).map(w=>w[0]).join('')),
+          h('div',{style:{minWidth:0}}, h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, h('span',{style:{fontSize:14,fontWeight:500}},e.name), n.center?this.pill('This business','low',{fontSize:9}):null),
+            h('div',{style:{fontSize:12,color:'var(--midnight-60)',marginTop:3}}, e.type+' · '+e.sub+' · '+rel.length+(rel.length===1?' connection':' connections'))),
+          this.pill(this.RISK[e.risk].label,e.risk),
+          h('span',{style:{color:'var(--midnight-40)',fontSize:12,transform:open?'rotate(180deg)':'none',transition:'transform .2s'}},'⌄')),
+        open?h('div',{style:{padding:'0 22px 16px 72px',display:'flex',flexDirection:'column',gap:9,animation:'mdFade .2s var(--ease-power2)'}}, ...rel.map((x,k)=>{ const other=E[x.a===n.id?x.b:x.a]; const xc=this.RISK[x.risk].c;
+          return h('div',{key:k,style:{display:'grid',gridTemplateColumns:'1fr auto auto',gap:12,alignItems:'center',padding:'10px 13px',borderRadius:10,border:'1px solid var(--border)'}},
+            h('div',{style:{minWidth:0}}, h('div',{style:{fontSize:13,fontWeight:500}},other?other.name:x.b), h('div',{style:{fontSize:11.5,color:'var(--midnight-60)',marginTop:2}}, x.type+' — '+x.ev)),
+            this.strengthMeter(x.strength),
+            this.pill(this.RISK[x.risk].label,x.risk)); })):null); };
+    return this.panel({}, this.panelHead('Entities in this network', this.mono(visN.length+' total · '+sections.length+' types')),
+      h('div',null, ...sections.map((s,si)=>
+        h('div',{key:s.key},
+          h('div',{style:{display:'flex',alignItems:'baseline',gap:12,padding:'14px 22px 10px',background:'var(--snow)',borderTop:si>0?'1px solid var(--border)':'none',borderBottom:'1px solid var(--border)'}},
+            h('span',{style:{fontSize:12.5,fontWeight:500}},s.label),
+            this.mono(s.rows.length+'',{color:'var(--midnight-60)'}),
+            h('span',{style:{fontSize:11.5,color:'var(--midnight-60)'}},s.note)),
+          ...s.rows.map((n,i)=>row(n,i,i===s.rows.length-1))))));
+  }
+
+  bTimeline(){
+    const h=React.createElement; const V=this.versions; const idx=this.state.timeIdx;
+    return this.panel({}, this.panelHead('Identity over time', this.mono('Version '+(idx+1)+' / '+V.length)),
+      h('div',{style:{padding:'18px 26px 20px'}},
+        h('div',{style:{display:'flex',alignItems:'baseline',gap:12,marginBottom:18,flexWrap:'wrap'}},
+          h('span',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:20,lineHeight:1}},V[idx].title),
+          this.mono('As of '+V[idx].date,{color:'var(--midnight-60)'})),
+        h('div',{style:{position:'relative',height:34}},
+          h('div',{style:{position:'absolute',top:6,left:7,right:7,height:2,background:'var(--border)'}}),
+          h('div',{style:{position:'absolute',top:6,left:7,width:'calc((100% - 14px) * '+(idx/(V.length-1))+')',height:2,background:'var(--midnight)'}}),
+          h('div',{style:{position:'absolute',inset:0,display:'flex',justifyContent:'space-between'}},
+            ...V.map((v,i)=> h('button',{key:i,onClick:()=>this.setS({timeIdx:i}),title:v.title,style:{background:'none',border:0,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:8,padding:0}},
+              h('span',{style:{width:i===idx?15:11,height:i===idx?15:11,borderRadius:'50%',background:i<=idx?'var(--midnight)':'#fff',border:'2px solid '+(i<=idx?'var(--midnight)':'var(--border)'),transition:'all .2s'}}),
+              h('span',{style:{fontFamily:'var(--font-mono)',fontSize:9.5,letterSpacing:'.02em',color:i===idx?'var(--midnight)':'var(--midnight-60)'}},v.date.split(', ')[0])))))));
+  }
+
+  bGraphCanvas(nodes,edges,ti){
+    const h=React.createElement; const pathMode=this.state.netMode==='path';
+    const seg=(label,mode)=> h('button',{onClick:()=>this.setState({netMode:mode}),style:{padding:'6px 12px',border:0,borderRadius:7,cursor:'pointer',fontSize:12,fontFamily:'inherit',whiteSpace:'nowrap',background:this.state.netMode===mode?'#fff':'transparent',color:this.state.netMode===mode?'var(--midnight)':'var(--midnight-60)',boxShadow:this.state.netMode===mode?'0 1px 2px rgba(11,49,57,.12)':'none',transition:'all .18s'}},label);
+    return h('div',{style:{background:'#fff',border:'1px solid var(--border)',borderRadius:18,overflow:'hidden',display:'flex',flexDirection:'column',height:640}},
+      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'15px 22px',borderBottom:'1px solid var(--border)'}},
+        h('div',null, this.mono('Relationship network · transit map',{color:'var(--midnight-60)'}), h('div',{style:{color:'var(--midnight)',fontFamily:'var(--font-serif)',fontWeight:300,fontSize:21,marginTop:4}}, pathMode?'How risk reaches Vela Logistics':'What shapes Vela Logistics — and what connects to it')),
+        h('div',{style:{display:'flex',alignItems:'center',gap:10}},
+          h('div',{style:{display:'inline-flex',background:'var(--snow)',border:'1px solid var(--border)',borderRadius:9,padding:3,gap:2}}, seg('Graph','graph'), seg('Risk path','path')),
+          pathMode?null:this.pathToggleLight())),
+      pathMode?this.riskPathBody()
+        : h('div',{style:{flex:1,display:'flex',minHeight:0,background:'#FCFCFB'}},
+        h('div',{style:{flex:1,minHeight:0,padding:'6px',minWidth:0}}, this.transitCanvas(nodes,edges,{timeIdx:ti,showPath:this.state.showPath!==false})),
+        h('div',{style:{width:214,flexShrink:0,borderLeft:'1px solid var(--border)',padding:'18px 20px',display:'flex',flexDirection:'column',gap:14,overflowY:'auto',background:'#fff'}},
+          this.mono('Legend',{color:'var(--midnight-60)'}), this.transitLegend(),
+          h('div',{style:{marginTop:'auto',fontSize:11.5,color:'var(--midnight-60)',lineHeight:1.5}},'Click a station to inspect it below. Every line is a citation; weak links draw dotted. Drag the timeline to watch the network take shape.'))));
+  }
+
+  get riskPath(){ return [
+    {id:'vela', tag:'Evaluated business'},
+    {id:'meridian', edge:'is 60% owned by', erisk:'watch', kind:'Ownership'},
+    {id:'okonkwo', edge:'is 75% owned by', erisk:'low', kind:'Ownership'},
+    {id:'harbor', edge:'shares an officer with', erisk:'watch', kind:'Officer'},
+    {id:'reyes', edge:'is co-officered by', erisk:'elev', kind:'Officer'},
+    {id:'stillwater', edge:'is 80% owned by', erisk:'high', kind:'Ownership'},
+  ]; }
+  riskPathBody(){
+    const h=React.createElement; const E=this.entities; const P=this.riskPath;
+    const card=(p,i)=>{ const e=E[p.id]; const rc=this.RISK[e.risk].c; const isEnd=i===P.length-1; const isStart=i===0;
+      return h('div',{key:'n'+i,style:{display:'flex',alignItems:'center',gap:14,padding:'14px 16px',borderRadius:14,background:'#0e353d',border:'1px solid '+(isEnd||isStart?rc:'#2f565e'),boxShadow:isEnd?'0 0 0 3px color-mix(in srgb, '+rc+' 20%, transparent)':'none'}},
+        h('span',{style:{width:40,height:40,borderRadius:e.kind==='person'?'50%':10,background:'#0b3139',border:'1.5px solid '+rc,borderStyle:e.kind==='person'?'dashed':'solid',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--font-mono)',fontSize:12,color:'var(--snow)',flexShrink:0}}, e.name.split(' ').slice(0,2).map(w=>w[0]).join('')),
+        h('div',{style:{flex:1,minWidth:0}},
+          h('div',{style:{display:'flex',alignItems:'center',gap:9,flexWrap:'wrap'}}, h('span',{style:{fontSize:14.5,fontWeight:500,color:'var(--snow)'}},e.name), isStart?this.mono(p.tag,{color:'#7FA6B0'}):null),
+          h('div',{style:{fontSize:11.5,color:'#7FA6B0',marginTop:2}}, e.type+' · '+e.sub)),
+        this.pill(this.RISK[e.risk].label,e.risk)); };
+    const connector=(p,i)=>{ const c=this.RISK[p.erisk].c;
+      return h('div',{key:'c'+i,style:{display:'flex',alignItems:'center',gap:12,paddingLeft:20,margin:'2px 0'}},
+        h('div',{style:{width:2,height:30,borderRadius:2,background:'repeating-linear-gradient(to bottom, '+c+' 0 5px, transparent 5px 10px)'}}),
+        h('div',{style:{display:'flex',alignItems:'center',gap:8}},
+          this.mono(p.kind,{color:c}),
+          h('span',{style:{fontSize:12.5,color:'#A0C1CB'}},p.edge),
+          h('span',{style:{fontFamily:'var(--font-mono)',fontSize:8.5,letterSpacing:'.04em',textTransform:'uppercase',color:c,border:'1px solid color-mix(in srgb, '+c+' 40%, #0e353d)',background:'color-mix(in srgb, '+c+' 12%, #0e353d)',padding:'2px 7px',borderRadius:9999}}, this.RISK[p.erisk].label+' carries')));
+    };
+    const seq=[]; P.forEach((p,i)=>{ if(i>0) seq.push(connector(p,i)); seq.push(card(p,i)); });
+    return h('div',{style:{flex:1,minHeight:0,display:'flex'}},
+      h('div',{style:{flex:1,minHeight:0,overflowY:'auto',padding:'22px 26px'}},
+        h('div',{style:{maxWidth:600,margin:'0 auto'}},
+          h('div',{style:{marginBottom:18}}, this.mono('One path · '+(P.length-1)+' hops · all strong links',{color:'#7FA6B0'}),
+            h('div',{style:{color:'#A0C1CB',fontSize:13,lineHeight:1.55,marginTop:8}},'A single chain of strong connections carries risk into Vela. Every hop is invisible from the business on its own — this is what the standalone Identity view cannot show.')),
+          ...seq)),
+      h('div',{style:{width:236,flexShrink:0,borderLeft:'1px solid #173B43',padding:'18px 18px',display:'flex',flexDirection:'column',gap:12,overflowY:'auto'}},
+        this.mono('At the end of the path',{color:'#7FA6B0'}),
+        h('div',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:26,lineHeight:1.1,color:'var(--snow)'}},'Stillwater Imports'),
+        h('div',{style:{marginTop:2}},this.pill('High risk','high')),
+        h('div',{style:{fontSize:12,color:'#A0C1CB',lineHeight:1.5,marginTop:6}},'Sanctioned-adjacent importer. No direct tie to Vela — reachable only by walking 5 strong links out.'),
+        h('div',{style:{height:1,background:'#173B43',margin:'6px 0'}}),
+        this.mono('Why it matters',{color:'#7FA6B0'}),
+        h('div',{style:{fontSize:12,color:'#A0C1CB',lineHeight:1.5}},'Ownership and shared-officer edges are directed and strong — risk propagates along them. A shared address would not.'),
+        h('button',{onClick:()=>this.setState({decisionsOpen:true}),style:{marginTop:'auto',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:8,padding:'10px 14px',borderRadius:10,border:0,background:'var(--lime)',color:'var(--midnight)',cursor:'pointer',fontSize:13,fontFamily:'inherit'}},'Review pending decision',h('span',null,'→'))));
+  }
+
+  B_identity(){
+    const h=React.createElement; const nodes=this.bNodes(),edges=this.bEdges(); const ti=this.state.timeIdx;
+    return h('div',{style:{padding:'26px 32px 44px',maxWidth:1280,margin:'0 auto',display:'flex',flexDirection:'column',gap:18}},
+      this.bGraphCanvas(nodes,edges,ti),
+      this.bTimeline(),
+      this.bNetworkOverview(nodes,edges,ti),
+      this.bEntityList(nodes,edges,ti));
+  }
+
+  bIntel(qk){
+    const q=qk||this.state.query;
+    if(q==='address') return { center:{id:'q',attr:true,x:440,y:285,label:'4400 Wilshire Blvd',sub:'Address',risk:'low'},
+      nodes:[{id:'vela',x:195,y:150},{id:'cedar',x:685,y:150},{id:'brightpath',x:685,y:420},{id:'lumen',x:195,y:420}],
+      edges:[{a:'q',b:'vela',type:'Address',strength:'weak',risk:'clear',ev:'Principal address since 2024'},{a:'q',b:'cedar',type:'Address',strength:'weak',risk:'clear',ev:'Registered agent address'},{a:'q',b:'brightpath',type:'Address',strength:'weak',risk:'clear',ev:'Mailing address, 2 filings'},{a:'q',b:'lumen',type:'Address',strength:'weak',risk:'clear',ev:'Listed agent address'}] };
+    if(q==='ubo') return { center:{id:'q',attr:true,x:440,y:300,label:'Meridian Holdings LLC',sub:'Beneficial owner',risk:'watch'},
+      nodes:[{id:'okonkwo',x:440,y:90},{id:'vela',x:215,y:380},{id:'anchor',x:665,y:380}],
+      edges:[{a:'okonkwo',b:'q',type:'Owns 75%',strength:'strong',risk:'low',dir:true,ev:'FinCEN BOI filing'},{a:'q',b:'vela',type:'Owns 60%',strength:'strong',risk:'watch',dir:true,ev:'Controlling interest'},{a:'q',b:'anchor',type:'Owns 100%',strength:'strong',risk:'low',dir:true,ev:'Wholly owned'}] };
+    return { center:{id:'q',attr:true,x:380,y:290,label:'Marcus Okonkwo',sub:'Officer / owner',risk:'elev'},
+      nodes:[{id:'meridian',x:400,y:80},{id:'vela',x:160,y:200},{id:'harbor',x:660,y:170},{id:'reyes',x:760,y:380},{id:'stillwater',x:560,y:470}],
+      edges:[{a:'q',b:'meridian',type:'Owns 75%',strength:'strong',risk:'low',dir:true,ev:'FinCEN BOI filing'},{a:'q',b:'vela',type:'Controls via Meridian',strength:'strong',risk:'watch',dir:false,path:true,ev:'Indirect control'},{a:'q',b:'harbor',type:'Officer',strength:'strong',risk:'watch',dir:false,path:true,ev:'Director, CA SoS'},{a:'reyes',b:'harbor',type:'Officer',strength:'strong',risk:'elev',dir:false,path:true,ev:'Co-officer at Harbor'},{a:'reyes',b:'stillwater',type:'Owns 80%',strength:'strong',risk:'high',dir:true,path:true,ev:'FinCEN BOI filing'}] };
+  }
+
+  B_intel(){
+    const h=React.createElement; const q=this.state.query; const Q=this.queries[q]; const g=this.bIntel();
+    const allNodes=[g.center,...g.nodes];
+    const qbtn=(label,k)=> h('button',{onClick:()=>this.setS({query:k,sel:null}),style:{padding:'7px 13px',border:0,borderRadius:8,cursor:'pointer',fontSize:12.5,background:q===k?'var(--snow)':'transparent',color:q===k?'var(--midnight)':'#A0C1CB',transition:'all .18s'}},label);
+    return h('div',{style:{padding:'22px 28px 28px'}},
+      h('div',{style:{background:'var(--midnight)',borderRadius:18,overflow:'hidden',display:'flex',flexDirection:'column',height:'calc(100vh - 116px)',minHeight:600}},
+        h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'15px 22px',borderBottom:'1px solid #173B43',flexWrap:'wrap'}},
+          h('div',null, this.mono('Intelligence · Start from a data attribute',{color:'#7FA6B0'}),
+            h('div',{style:{color:'var(--snow)',fontFamily:'var(--font-serif)',fontWeight:300,fontSize:21,marginTop:4}},'What businesses share this '+Q.attr.toLowerCase()+'?')),
+          h('div',{style:{display:'inline-flex',background:'#0e353d',border:'1px solid #2f565e',borderRadius:10,padding:3,gap:2}}, qbtn('Address','address'), qbtn('Owner','ubo'), qbtn('Officer','officer'))),
+        h('div',{style:{flex:1,display:'flex',minHeight:0}},
+          h('div',{style:{flex:1,minHeight:0,padding:'8px 8px 8px'}}, this.graphCanvas(allNodes,g.edges,{timeIdx:null,showPath:this.state.showPath!==false})),
+          this.bIntelDrawer(Q,g))));
+  }
+  bIntelDrawer(Q,g){
+    const h=React.createElement; const E=this.entities;
+    const ranked=Q.conns.slice().sort((a,b)=>({strong:3,moderate:2,weak:1}[b.strength]-{strong:3,moderate:2,weak:1}[a.strength]));
+    return h('div',{style:{width:316,flexShrink:0,borderLeft:'1px solid #173B43',background:'#0e353d',padding:'18px 20px',overflowY:'auto',color:'var(--snow)'}},
+      this.mono('Connected businesses',{color:'#7FA6B0'}),
+      h('div',{style:{display:'flex',alignItems:'baseline',gap:8,margin:'10px 0 6px'}}, h('span',{style:{fontFamily:'var(--font-serif)',fontSize:34,fontWeight:300,lineHeight:1}},Q.conns.length), h('span',{style:{fontSize:12.5,color:'#A0C1CB'}},'share this '+Q.attr.toLowerCase())),
+      h('p',{style:{margin:'4px 0 16px',fontSize:12,lineHeight:1.5,color:'#A0C1CB'}},Q.note),
+      ...ranked.map((c,i)=>{ const e=E[c.id]; const rc=this.RISK[c.risk].c;
+        return h('div',{key:c.id,style:{padding:'12px 0',borderBottom:i<ranked.length-1?'1px solid #173B43':'none'}},
+          h('div',{style:{display:'flex',justifyContent:'space-between',gap:8,alignItems:'flex-start'}},
+            h('span',{style:{fontSize:13.5,fontWeight:500}},e?e.name:c.id), h('span',{style:{width:8,height:8,borderRadius:'50%',background:rc,marginTop:5,flexShrink:0}})),
+          h('div',{style:{display:'flex',alignItems:'center',gap:8,marginTop:6}}, this.strengthMeterDark(c.strength), h('span',{style:{fontSize:11,color:'#7FA6B0'}},c.ctype)),
+          h('div',{style:{fontSize:11,color:'#7FA6B0',marginTop:5,lineHeight:1.4}},c.ev)); }),
+      h('div',{style:{marginTop:16,padding:'12px 14px',borderRadius:12,background:'color-mix(in srgb, var(--lime) 12%, #0e353d)',border:'1px solid color-mix(in srgb, var(--lime) 30%, #0e353d)'}},
+        this.mono('What to act on',{color:'var(--lime)'}),
+        h('div',{style:{fontSize:12.5,lineHeight:1.5,color:'#E3EEEF',marginTop:7}}, this.state.query==='officer'?'This officer links Vela to a high-risk entity two hops out. Escalate to manual review.':this.state.query==='ubo'?'Common control across 2 active businesses. Apply the same monitoring policy to both.':'A shared commercial address — weak on its own. No action; note for context.')));
+  }
+  strengthMeterDark(s){ const h=React.createElement; const n={weak:1,moderate:2,strong:3}[s]; const c=s==='strong'?'var(--snow)':s==='moderate'?'#A0C1CB':'#5a8089';
+    return h('div',{style:{display:'flex',gap:3}}, ...[0,1,2].map(i=>h('span',{key:i,style:{width:14,height:4,borderRadius:2,background:i<n?c:'#2f565e'}}))); }
+  /* =====================================================
+     DIRECTION C — QUESTIONS (answer-first, scannable)
+  ===================================================== */
+  exposureMeter(level){
+    const h=React.createElement; const order=['clear','low','watch','elev','high']; const idx=order.indexOf(level);
+    return h('div',{style:{display:'flex',flexDirection:'column',gap:7,minWidth:200}},
+      this.mono('Business identity risk'),
+      h('div',{style:{display:'flex',gap:3}}, ...order.map((t,i)=>{ const c=this.RISK[t].c;
+        return h('div',{key:t,style:{flex:1,height:8,borderRadius:3,background:i<=idx?c:'var(--border)',opacity:i<=idx?1:.6}}); })),
+      h('div',{style:{display:'flex',justifyContent:'space-between'}}, this.mono('Clear',{fontSize:9}), h('span',{style:{fontFamily:'var(--font-mono)',fontSize:10,letterSpacing:'.05em',textTransform:'uppercase',color:this.RISK[level].c}},this.RISK[level].label)));
+  }
+  cIdentityHeaderInner(){
+    const h=React.createElement; const f=this.facts.filter(([k])=>['TIN','Entity type','Formed','Home state','Status'].includes(k));
+    const dissolved=(this.profile.facts.find(x=>x[0]==='Status')||['','Active'])[1].indexOf('Dissolved')>=0;
+    return h('div',{style:{padding:'22px 26px 20px',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between',gap:28,flexWrap:'wrap',alignItems:'center'}},
+      h('div',{style:{minWidth:240,flex:1}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}},
+          h('h1',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:30,letterSpacing:'-.02em',lineHeight:1,margin:0}},this.nameOf),
+          this.pill(dissolved?'Dissolved':'Active',dissolved?'high':'low')),
+        h('div',{style:{display:'flex',flexWrap:'wrap',gap:'6px 18px',marginTop:12}}, ...f.map(([k,v])=>
+          h('span',{key:k,style:{fontSize:12.5,color:'var(--midnight-60)',whiteSpace:'nowrap'}}, k+': ', h('span',{style:{color:'var(--midnight)'}},v))))),
+      this.exposureMeter(this.riskAt(this.asOfIdx)));
+  }
+  identityTimeMachine(){ const h=React.createElement; const V=this.versions; const idx=this.asOfIdx; const live=this.isLive;
+    const line=(()=>{ const W=1040,H=46,cy=18;
+      const evs=V.map((v,i)=>({i,t:this.parseDate(v.date)}));
+      const fa=evs[0].t, fb=evs[evs.length-1].t, full=(fb-fa)||1;
+      const z=this.state.itmZoom||1; const winSpan=full/z;
+      const selT=live?fb:evs[idx].t;
+      let center=this.state.itmPan!=null?this.state.itmPan:selT;
+      let t0=center-winSpan/2,t1=center+winSpan/2;
+      if(t0<fa){t0=fa;t1=fa+winSpan;} if(t1>fb){t1=fb;t0=fb-winSpan;} if(t0<fa)t0=fa;
+      const span=(t1-t0)||1; const x=(t)=>10+(t-t0)/span*(W-20); const px=x(selT);
+      const kf=evs.filter(e=>e.t>=t0&&e.t<=t1).map(e=>{ const cx=x(e.t); const isLast=e.i===evs.length-1; const on=(!live&&e.i===idx)||(live&&isLast); const s=on?6.5:5;
+        const rr=this.riskAt(e.i); const hasFinding=(rr==='elev'||rr==='watch'); const inS=s*0.5;
+        const findCol=rr==='elev'?'var(--risk-high)':rr==='watch'?'var(--risk-watch)':'var(--risk-clear)';
+        let fillCol,strokeCol;
+        if(on){ if(hasFinding){fillCol=strokeCol=findCol;} else if(isLast&&live){fillCol=strokeCol='var(--risk-clear)';} else {fillCol=strokeCol='var(--midnight)';} }
+        else { fillCol='#fff'; strokeCol='var(--midnight-40)'; }
+        return h('div',{key:e.i,style:{position:'absolute',left:(cx/W*100)+'%',top:cy,width:s*2,height:s*2,marginLeft:-s,marginTop:-s,transform:'rotate(45deg)',background:fillCol,border:(on?2:1.6)+'px solid '+strokeCol,boxSizing:'border-box',cursor:'pointer',zIndex:3},onMouseEnter:()=>this.setState({itmHover:e.i}),onMouseLeave:()=>this.setState({itmHover:null}),onMouseDown:(ev)=>{ev.stopPropagation(); this.setState({asOf:e.i>=evs.length-1?null:e.i,itmPan:e.t});}},
+          !on?h('div',{style:{position:'absolute',left:'50%',top:'50%',width:inS*2,height:inS*2,marginLeft:-inS,marginTop:-inS,background:findCol,pointerEvents:'none'}}):null); });
+      const hv=this.state.itmHover;
+      const dateSel=live?V[V.length-1].date:V[idx].date; const selRisk=this.riskAt(live?V.length-1:idx); const pickerCol=selRisk==='elev'?'var(--risk-high)':selRisk==='watch'?'var(--risk-watch)':(live?'var(--risk-clear)':'var(--midnight)');
+      const pillBase={position:'absolute',top:1,fontFamily:'var(--font-mono)',fontSize:9.5,letterSpacing:'.03em',padding:'4px 8px',borderRadius:6,whiteSpace:'nowrap',zIndex:5};
+      const anchor=(vx)=>{ const f=vx/W; return f<0.08?'translateX(0)':f>0.92?'translateX(-100%)':'translateX(-50%)'; };
+      const clampL=(vx)=>(vx/W*100)+'%';
+      const pickerPill=(px>=6&&px<=W-6)?h('div',{key:'pk',style:Object.assign({},pillBase,{left:clampL(px),transform:anchor(px),background:pickerCol,color:'#fff',cursor:'ew-resize',boxShadow:'0 6px 16px -6px rgba(11,49,57,.45)'}),onMouseDown:(ev)=>{ev.stopPropagation();this.itmScrub(ev,t0,span,evs);}},dateSel):null;
+      const selIdx=live?V.length-1:idx; let hoverPill=null; if(hv!=null&&V[hv]&&hv!==selIdx){ const hpx=x(this.parseDate(V[hv].date)); if(hpx>=6&&hpx<=W-6) hoverPill=h('div',{key:'hv',style:Object.assign({},pillBase,{left:clampL(hpx),transform:anchor(hpx),background:'#fff',color:'var(--midnight)',border:'1px solid var(--border)',pointerEvents:'none',boxShadow:'0 6px 16px -6px rgba(11,49,57,.28)'})},V[hv].date); }
+      const yr0=new Date(t0).getFullYear(), yr1=new Date(t1).getFullYear(); const yticks=[];
+      const stepY=Math.max(1,Math.ceil((yr1-yr0)/6)); for(let y=Math.ceil(yr0/stepY)*stepY;y<=yr1;y+=stepY){ const tx=x(new Date(y,0,1).getTime()); if(tx>12&&tx<W-12) yticks.push(h('div',{key:'y'+y},
+        h('div',{style:{position:'absolute',left:(tx/W*100)+'%',top:cy-11,width:1,height:22,background:'var(--border)'}}),
+        h('div',{style:{position:'absolute',left:(tx/W*100)+'%',top:cy+14,transform:'translateX(-50%)',fontFamily:'var(--font-mono)',fontSize:10,letterSpacing:'.03em',color:'var(--midnight-40)',whiteSpace:'nowrap'}},y))); }
+      const zb=(g,fn)=>h('button',{onClick:fn,style:{minWidth:24,height:22,padding:'0 7px',borderRadius:6,border:'1px solid var(--border)',background:'#fff',cursor:'pointer',fontFamily:'var(--font-mono)',fontSize:11,color:'var(--midnight)',lineHeight:1}},g);
+      return h('div',{style:{position:'relative',userSelect:'none',paddingTop:26}},
+        pickerPill, hoverPill,
+        h('div',{style:{position:'relative',height:H,cursor:'grab'},onMouseDown:(ev)=>this.itmPanStart(ev,center,winSpan)},
+          h('div',{style:{position:'absolute',left:(10/W*100)+'%',right:(10/W*100)+'%',top:cy,marginTop:-0.75,height:1.5,background:'var(--midnight-20)'}}),
+          ...yticks,
+          h('div',{style:{position:'absolute',left:(10/W*100)+'%',width:(Math.max(0,Math.min(W-10,px)-10)/W*100)+'%',top:cy,marginTop:-0.75,height:1.5,background:live?'var(--risk-clear)':'var(--midnight)'}}),
+          (px>=6&&px<=W-6)?h('div',{style:{position:'absolute',left:(px/W*100)+'%',top:cy-15,width:1.5,height:30,marginLeft:-0.75,background:pickerCol,cursor:'ew-resize',zIndex:2},onMouseDown:(ev)=>{ev.stopPropagation();this.itmScrub(ev,t0,span,evs);}}):null,
+          ...kf));
+    })();
+    return this.panel({},
+      this.cIdentityHeaderInner(),
+      h('div',{style:{padding:'15px 22px 10px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:16,flexWrap:'wrap'}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:12}},
+          h('span',{style:{display:'inline-flex',alignItems:'center',gap:7,fontFamily:'var(--font-mono)',fontSize:10,letterSpacing:'.05em',textTransform:'uppercase',color:live?'var(--risk-clear)':'var(--midnight)'}}, h('span',{style:{width:7,height:7,borderRadius:'50%',background:live?'var(--risk-clear)':'var(--midnight)'}}), live?'Latest':'Time travel'),
+          h('span',{style:{fontFamily:'var(--font-mono)',fontSize:10,letterSpacing:'.05em',textTransform:'uppercase',color:'var(--midnight-40)',whiteSpace:'nowrap'}}, V.length+' updates on record')),
+        this.timeStepper(idx,V,live)),
+      h('div',{style:{padding:'0 22px 12px',fontSize:14,color:'var(--midnight)'}}, live?'As of latest update · '+V[idx].date : 'Viewing as of '+V[idx].date+' · '+V[idx].title),
+      h('div',{style:{padding:'0 22px '+(live?'40px':'40px')}}, line),
+      live?null:h('div',{style:{display:'flex',alignItems:'center',gap:10,margin:'0 22px 16px',padding:'11px 14px',borderRadius:12,background:'color-mix(in srgb, var(--risk-watch) 9%, #fff)',border:'1px solid color-mix(in srgb, var(--risk-watch) 24%, #fff)'}},
+        h('span',{style:{fontSize:14}},'⏱'),
+        h('div',{style:{flex:1,minWidth:0,fontSize:12,color:'var(--midnight-60)',lineHeight:1.45}}, h('span',{style:{color:'var(--midnight)',fontWeight:500}},'Historical view. '),'Risk profile, answers, and attributes reflect what Middesk knew on '+V[idx].date+'. '+(V.length-1-idx)+' update'+((V.length-1-idx)>1?'s':'')+' have landed since.'),
+        h('button',{onClick:()=>this.setState({asOf:null}),style:{padding:'0 12px',height:30,borderRadius:8,border:'1px solid var(--border)',background:'#fff',cursor:'pointer',fontSize:12.5,color:'var(--midnight)',fontFamily:'inherit',whiteSpace:'nowrap',flexShrink:0}},'Back to latest')));
+  }
+  timeStepper(idx,V,live){ const h=React.createElement;
+    const selT=live?this.parseDate(V[V.length-1].date):this.parseDate(V[idx].date);
+    const zb=(node,fn,lbl)=>h('button',{onClick:fn,title:lbl,style:{minWidth:26,height:26,padding:'0 8px',borderRadius:7,border:'1px solid var(--border)',background:'#fff',cursor:'pointer',color:'var(--midnight)',display:'inline-flex',alignItems:'center',justifyContent:'center'}},node);
+    const mag=(plus)=>h('svg',{width:14,height:14,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2,strokeLinecap:'round'}, h('circle',{cx:11,cy:11,r:7}), h('line',{x1:21,y1:21,x2:16.5,y2:16.5}), h('line',{x1:8,y1:11,x2:14,y2:11}), plus?h('line',{x1:11,y1:8,x2:11,y2:14}):null);
+    const fitIcon=h('svg',{width:14,height:14,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2,strokeLinecap:'round',strokeLinejoin:'round'}, h('path',{d:'M8 3H5a2 2 0 0 0-2 2v3'}), h('path',{d:'M16 3h3a2 2 0 0 1 2 2v3'}), h('path',{d:'M8 21H5a2 2 0 0 1-2-2v-3'}), h('path',{d:'M16 21h3a2 2 0 0 0 2-2v-3'}));
+    return h('div',{style:{display:'flex',alignItems:'center',gap:10}},
+      h('div',{style:{display:'flex',alignItems:'center',gap:4}}, zb(mag(true),()=>this.itmSetZoom(1.8,selT),'Zoom in'), zb(mag(false),()=>this.itmSetZoom(1/1.8,selT),'Zoom out'), zb(fitIcon,()=>this.setState({itmZoom:1,itmPan:null}),'Fit all')));
+  }
+  itmSetZoom(mult,focusT){ const z=Math.min(500,Math.max(1,(this.state.itmZoom||1)*mult)); this.setState({itmZoom:z, itmPan:focusT}); }
+  itmPanStart(ev,center,winSpan){ if(!this._itm)return; const r=this._itm.getBoundingClientRect(); const sx=ev.clientX; const c0=this.state.itmPan!=null?this.state.itmPan:center; const move=(e)=>{const dx=(e.clientX-sx)/r.width; this.setState({itmPan:c0-dx*winSpan});}; const up=()=>{window.removeEventListener('mousemove',move);window.removeEventListener('mouseup',up);}; window.addEventListener('mousemove',move); window.addEventListener('mouseup',up); }
+  itmScrub(ev,t0,span,evs){ if(!this._itm)return; const r=this._itm.getBoundingClientRect(); const pick=(e)=>{ let frac=(e.clientX-r.left-10*(r.width/1040))/(r.width-20*(r.width/1040)); frac=Math.min(1,Math.max(0,frac)); const t=t0+frac*span; let best=evs[0]; evs.forEach(v=>{if(best==null||Math.abs(v.t-t)<Math.abs(best.t-t))best=v;}); this.setState({asOf:best.i>=evs.length-1?null:best.i, itmPan:best.t}); }; const up=()=>{window.removeEventListener('mousemove',pick);window.removeEventListener('mouseup',up);}; window.addEventListener('mousemove',pick); window.addEventListener('mouseup',up); pick(ev); }
+  qCards(){
+    const h=React.createElement;
+    return h('div',{style:{display:'grid',gridTemplateColumns:'repeat(2, 1fr)',gap:14}}, ...this.questions.map((q,i)=>{
+      const c=this.RISK[q.tone].c; const open=this.state.expandedQ===i;
+      return h('div',{key:i,onClick:()=>this.setState({expandedQ:open?-1:i}),style:{background:'#fff',border:'1px solid var(--border)',borderRadius:16,padding:'18px 20px',cursor:'pointer',transition:'border-color .18s',borderColor:open?c:'var(--border)'}},
+        h('div',{style:{display:'flex',justifyContent:'space-between',gap:10,alignItems:'flex-start'}},
+          h('div',{style:{fontSize:13.5,color:'var(--midnight-60)',lineHeight:1.35,flex:1}},q.q),
+          h('span',{style:{color:'var(--midnight-40)',fontSize:12,transform:open?'rotate(180deg)':'none',transition:'transform .2s'}},'⌄')),
+        h('div',{style:{display:'flex',alignItems:'center',gap:10,margin:'10px 0 0'}},
+          h('span',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:25,lineHeight:1,color:'var(--midnight)'}},q.a),
+          h('span',{style:{width:8,height:8,borderRadius:'50%',background:c}})),
+        open?h('div',{style:{marginTop:12,animation:'mdFade .25s var(--ease-power2)'}},
+          h('p',{style:{margin:'0 0 10px',fontSize:12.5,lineHeight:1.55,color:'var(--midnight-80)'}},q.insight),
+          h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}}, ...q.ev.map(e=>h('span',{key:e,style:{fontFamily:'var(--font-mono)',fontSize:9.5,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--midnight-60)',background:'var(--fog)',padding:'4px 8px',borderRadius:6}},e)))):null);
+    }));
+  }
+  changesFeed(){
+    const h=React.createElement; const asMs=this.asOfMs; const meaningful=this.versions.filter(v=>v.matters&&this.parseDate(v.date)<=asMs).reverse();
+    return this.panel({}, this.panelHead('Meaningful changes', this.mono(this.isLive?'Filtered to what matters to you':'As of '+this.versions[this.asOfIdx].date)),
+      meaningful.length?h('div',{style:{padding:'6px 22px 14px'}}, ...meaningful.map((v,i)=>{ const wt={Review:'low',Watch:'watch',Act:'elev'}[v.weight]; const c=this.RISK[wt].c;
+        return h('div',{key:i,style:{display:'flex',gap:14,padding:'14px 0',borderBottom:i<meaningful.length-1?'1px solid var(--border)':'none'}},
+          h('span',{style:{width:8,height:8,borderRadius:'50%',background:c,marginTop:6,flexShrink:0}}),
+          h('div',{style:{flex:1}},
+            h('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}, this.mono(v.date), this.pill(v.weight,wt,{fontSize:9})),
+            h('div',{style:{fontSize:14,margin:'5px 0 4px'}},v.title),
+            ...v.changes.map((ch,j)=>h('div',{key:j,style:{fontSize:12,color:'var(--midnight-60)',marginTop:2}}, ch[0]+': ', h('span',{style:{textDecoration:ch[1]==='—'?'none':'line-through',color:'var(--midnight-40)'}},ch[1]),' → ',h('span',{style:{color:'var(--midnight)',fontWeight:500}},ch[2]))),
+            h('div',{style:{fontSize:12,color:c,marginTop:7,lineHeight:1.45}},v.why))); }))
+      :h('div',{style:{padding:'22px',fontSize:12.5,color:'var(--midnight-60)'}},'No meaningful changes had occurred yet at this point.'));
+  }
+  C_identity(){
+    const h=React.createElement;
+    return h('div',{style:{padding:'26px 32px 44px',maxWidth:1180,margin:'0 auto',display:'flex',flexDirection:'column',gap:18}},
+      this.identityTimeMachine(),
+      this.policyExperience(),
+      h('div',{style:{display:'grid',gridTemplateColumns:'1.1fr 1fr',gap:18,alignItems:'start'}},
+        this.connectedIdentitiesPanel(),
+        h('div',{style:{display:'flex',flexDirection:'column',gap:18}}, this.lastDecisionCard(), this.changesFeed())),
+      this.dataAttributesPanel());
+  }
+  C_intel(){
+    const h=React.createElement; const q=this.state.query; const Q=this.queries[q]; const E=this.entities; const g=this.bIntel();
+    const prompts=[['What businesses share this address?','address'],['What does the ownership network look like?','ubo'],['What connects through this officer?','officer']];
+    const ranked=Q.conns.slice().sort((a,b)=>({strong:3,moderate:2,weak:1}[b.strength]-{strong:3,moderate:2,weak:1}[a.strength]));
+    const verdict = q==='officer'?{t:'Act',tone:'elev',txt:'This officer is the path that carries hidden risk. Escalate Vela to manual review.'}
+      : q==='ubo'?{t:'Monitor',tone:'watch',txt:'Common control spans 2 active businesses. Extend the same policy to both.'}
+      : {t:'Note',tone:'low',txt:'A shared commercial address — weak on its own. Record for context, no action.'};
+    return h('div',{style:{padding:'26px 32px 44px',maxWidth:1180,margin:'0 auto',display:'flex',flexDirection:'column',gap:18}},
+      // ask bar
+      h('div',{style:{background:'#fff',border:'1px solid var(--border)',borderRadius:18,padding:'22px 26px'}},
+        this.mono('Intelligence · Ask about this business or its network'),
+        h('div',{style:{display:'flex',alignItems:'center',gap:14,margin:'12px 0 16px',padding:'14px 18px',border:'1px solid var(--border)',borderRadius:12,background:'var(--snow)'}},
+          h('span',{style:{width:8,height:8,borderRadius:'50%',background:'var(--lime)'}}),
+          h('span',{style:{fontSize:16,color:'var(--midnight)'}}, prompts.find(p=>p[1]===q)[0]),
+          h('span',{style:{flex:1}}),
+          h('span',{style:{width:30,height:30,borderRadius:8,background:'var(--midnight)',color:'var(--snow)',display:'inline-flex',alignItems:'center',justifyContent:'center'}},'→')),
+        h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}}, ...prompts.map(([label,k])=>
+          h('button',{key:k,onClick:()=>this.setS({query:k}),style:{padding:'8px 13px',borderRadius:9,border:'1px solid '+(q===k?'var(--midnight)':'var(--border)'),background:q===k?'var(--midnight)':'#fff',color:q===k?'var(--snow)':'var(--midnight-80)',cursor:'pointer',fontSize:12.5,transition:'all .18s'}},label)))),
+      // assembled answer
+      h('div',{style:{display:'grid',gridTemplateColumns:'1.15fr 1fr',gap:18,alignItems:'stretch'}},
+        // left: structured answer
+        this.panel({display:'flex',flexDirection:'column'},
+          h('div',{style:{padding:'20px 24px',borderBottom:'1px solid var(--border)'}},
+            this.mono('Answer'),
+            h('div',{style:{display:'flex',alignItems:'baseline',gap:10,marginTop:8,flexWrap:'wrap'}},
+              h('span',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:30,lineHeight:1}},Q.conns.length+' businesses'),
+              h('span',{style:{fontSize:14,color:'var(--midnight-60)'}},(q==='address'?'share this address':'share a common '+Q.attr.toLowerCase()+': '+Q.value))),
+            h('p',{style:{margin:'10px 0 0',fontSize:13,lineHeight:1.55,color:'var(--midnight-80)'}},Q.note)),
+          h('div',{style:{padding:'6px 24px 12px',flex:1}}, ...ranked.map((c,i)=>{ const e=E[c.id]; const rc=this.RISK[c.risk].c;
+            return h('div',{key:c.id,style:{display:'grid',gridTemplateColumns:'1fr auto auto',gap:14,alignItems:'center',padding:'13px 0',borderBottom:i<ranked.length-1?'1px solid var(--border)':'none',background:c.self?'color-mix(in srgb, var(--lime) 6%, #fff)':'transparent'}},
+              h('div',null, h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, h('span',{style:{fontSize:13.5,fontWeight:500}},e?e.name:c.id), c.self?this.pill('This business','low',{fontSize:9}):null),
+                h('div',{style:{fontSize:11.5,color:'var(--midnight-60)',marginTop:3}}, c.ctype+' — '+c.ev)),
+              this.strengthMeter(c.strength),
+              this.pill(this.RISK[c.risk].label,c.risk)); }))),
+        // right: evidence (mini graph) + act on
+        h('div',{style:{display:'flex',flexDirection:'column',gap:18}},
+          h('div',{style:{background:'var(--midnight)',borderRadius:18,overflow:'hidden',display:'flex',flexDirection:'column'}},
+            h('div',{style:{padding:'14px 18px',borderBottom:'1px solid #173B43',display:'flex',justifyContent:'space-between',alignItems:'center'}}, this.mono('How the connections hold together',{color:'#7FA6B0'}), h('button',{onClick:()=>this.setS({direction:'B'}),style:{background:'none',border:0,color:'var(--lime)',cursor:'pointer',fontSize:11.5}},'Open full graph →')),
+            h('div',{style:{height:300}}, this.graphCanvas([g.center,...g.nodes],g.edges,{timeIdx:null,showPath:this.state.showPath!==false}))),
+          h('div',{style:{background:'color-mix(in srgb, '+this.RISK[verdict.tone].c+' 9%, #fff)',border:'1px solid color-mix(in srgb, '+this.RISK[verdict.tone].c+' 26%, #fff)',borderRadius:18,padding:'20px 24px'}},
+            h('div',{style:{display:'flex',alignItems:'center',gap:10}}, this.mono('What to act on',{color:this.RISK[verdict.tone].c}), this.pill(verdict.t,verdict.tone)),
+            h('p',{style:{margin:'10px 0 0',fontSize:14,lineHeight:1.5,color:'var(--midnight)'}},verdict.txt)))));
+  }
+
+  screen(){
+    const {direction,view}=this.state;
+    if(view==='list') return this.identitiesList();
+    if(view==='intelligence') return this.intelChat();
+    if(direction==='A') return this.A_identity();
+    if(direction==='B') return this.B_identity();
+    return this.C_identity();
+  }
+  get portfolioList(){ const cur=this.activeId; const meta={
+      vela:{rec:'Manual review',tone:'elev',net:'Elevated',updated:'Apr 21, 2026'},
+      anchor:{rec:'Clear to approve',tone:'clear',net:'Low',updated:'Mar 02, 2026'},
+      harbor:{rec:'Review recommended',tone:'watch',net:'Watch',updated:'Feb 14, 2026'},
+      meridian:{rec:'Review recommended',tone:'watch',net:'Watch',updated:'Apr 21, 2026'},
+      cedar:{rec:'Clear to approve',tone:'clear',net:'Clear',updated:'Jan 09, 2026'},
+      brightpath:{rec:'Clear to approve',tone:'clear',net:'Clear',updated:'Dec 18, 2025'},
+      stillwater:{rec:'Manual review',tone:'high',net:'High',updated:'Apr 19, 2026'},
+    };
+    const derive=(id)=>{ const p=this.PROFILES[id]; const f=(k)=>(p.facts.find(x=>x[0]===k)||['',''])[1];
+      return {id, name:p.name, type:f('Entity type')||'—', state:f('Home state')||'—', ind:f('Industry')||'—', status:(f('Status')||'Active').indexOf('Dissolved')>=0?'Dissolved':'Active', current:id===cur, ...meta[id]}; };
+    return ['vela','anchor','harbor','meridian','cedar','brightpath','stillwater'].map(derive); }
+  identitiesList(){ const h=React.createElement; const rows=this.portfolioList;
+    const col=(t)=>this.mono(t,{color:'var(--midnight-40)'});
+    return h('div',{style:{padding:'26px 32px 44px',maxWidth:1180,margin:'0 auto',display:'flex',flexDirection:'column',gap:18}},
+      h('div',null,
+        this.mono('Workspace · '+rows.length+' identities'),
+        h('h1',{style:{fontFamily:'var(--font-serif)',fontWeight:300,fontSize:32,letterSpacing:'-.02em',margin:'8px 0 0'}},'Identities')),
+      this.panel({},
+        h('div',{style:{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 0.8fr',gap:16,padding:'12px 22px',borderBottom:'1px solid var(--border)',background:'var(--snow)'}},
+          col('Business'), col('Recommendation'), col('Network risk'), col('SoS status'), col('Updated')),
+        ...rows.map((r,i)=>{ const c=this.RISK[r.tone].c; const nc=this.RISK[({High:'high',Elevated:'elev',Watch:'watch',Low:'low',Clear:'clear'})[r.net]||'mute'].c;
+          return h('button',{key:i,onClick:()=>{ this.setState({activeId:r.id, asOf:null, secOpen:{}, openQ:null, attnOnly:false}); this.setS({view:'identity',direction:'C'}); },style:{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 0.8fr',gap:16,alignItems:'center',width:'100%',padding:'15px 22px',border:0,borderBottom:i<rows.length-1?'1px solid var(--border)':'none',background:r.current?'color-mix(in srgb, var(--lime) 6%, #fff)':'#fff',cursor:'pointer',textAlign:'left',fontFamily:'inherit'}},
+            h('div',{style:{display:'flex',alignItems:'center',gap:12,minWidth:0}},
+              h('span',{style:{width:34,height:34,borderRadius:8,background:'var(--fog)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--font-mono)',fontSize:11,color:'var(--midnight-80)',flexShrink:0}}, r.name.split(' ').slice(0,2).map(w=>w[0]).join('')),
+              h('div',{style:{minWidth:0}}, h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, h('span',{style:{fontSize:14,fontWeight:500}},r.name), r.current?this.pill('Viewing','low',{fontSize:9}):null), h('div',{style:{fontSize:11.5,color:'var(--midnight-60)',marginTop:2}},r.type+' · '+r.state+' · '+r.ind))),
+            this.pill(r.rec,r.tone),
+            h('span',{style:{display:'inline-flex',alignItems:'center',gap:7,fontSize:12.5,color:'var(--midnight-80)'}}, h('span',{style:{width:8,height:8,borderRadius:'50%',background:nc}}), r.net),
+            h('span',{style:{fontSize:12.5,color:r.status==='Active'?'var(--midnight-80)':'var(--risk-high)'}}, r.status),
+            this.mono(r.updated,{color:'var(--midnight-60)'})); })));
+  }
+  app(){
+    const h=React.createElement; const {direction,view}=this.state;
+    return h('div',{style:{display:'flex',height:'100vh',width:'100%',overflow:'hidden',background:'var(--fog)',fontFamily:'var(--font-sans)',color:'var(--midnight)'}},
+      this.Sidebar(),
+      h('main',{style:{flex:1,display:'flex',flexDirection:'column',minWidth:0}},
+        this.Topbar(),
+        h('div',{key:direction+view,id:'mid-scroll',style:{flex:1,overflow:'auto',opacity:1}}, this.screen())),
+      this.decisionDrawer());
+  }
+  renderVals(){ return { app: this.app() }; }
+}
+</script>
+</body>
+</html>

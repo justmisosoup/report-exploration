@@ -1,0 +1,74 @@
+/* Identity Intelligence — app layer over the @/core design system.
+ *
+ * The design system itself is public/core-theme.css (copied verbatim from
+ * the app repo's src/core/theme.css — the --core-* source of truth, scoped
+ * to .core-theme with a [data-theme="dark"] scope). This file adds only:
+ *   1. the Suisse Intl font-faces the product app ships,
+ *   2. base element defaults,
+ *   3. the prototype's animation keyframes,
+ *   4. app-semantic aliases (risk ramp, fonts) defined FROM core tokens.
+ * No raw values that duplicate or fork the design system.
+ */
+
+@font-face { font-family: 'Suisse Intl'; src: url('./fonts/SuisseIntl-Regular.otf'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Suisse Intl'; src: url('./fonts/SuisseIntl-SemiBold.otf'); font-weight: 600; font-display: swap; }
+@font-face { font-family: 'Suisse Intl Mono'; src: url('./fonts/SuisseIntl-Mono.ttf'); font-weight: 400; font-display: swap; }
+
+.core-theme {
+  /* App-semantic slots resolved from core tokens (core has no mono token;
+     the product app loads Suisse Intl Mono for code/data). */
+  --app-font: var(--core-font-family-default);
+  --app-font-display: var(--core-font-family-display);
+  --app-font-mono: 'Suisse Intl Mono', ui-monospace, 'SF Mono', monospace;
+
+  /* Risk ramp — the prototype's five tones mapped onto the core
+     risk/materiality ladder (none/low/moderate/high/critical). */
+  --risk-clear: var(--core-color-risk-low-fg);
+  --risk-low:   var(--core-color-risk-low-fg);
+  --risk-watch: var(--core-color-risk-moderate-fg);
+  --risk-elev:  var(--core-color-risk-high-fg);
+  --risk-high:  var(--core-color-risk-critical-border);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--core-color-surface-canvas);
+  color: var(--core-color-text-primary);
+  font-family: var(--app-font);
+  font-size: var(--core-font-size-md);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+button { font-family: inherit; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--core-color-border-strong); border-radius: 10px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--core-color-border-bold); background-clip: content-box; }
+
+/* App-layer nav + composer classes — mirror @/core AppShell's navItemVariants
+   and ChatComposer chrome; every value is a core token. Needed as classes
+   (not inline styles) for :hover / :focus-within. */
+.app-nav-item{position:relative;display:flex;align-items:center;gap:8px;width:100%;min-height:32px;padding:8px;border:0;border-radius:8px;background:transparent;color:var(--core-color-nav-item-text);font:400 13px/1 var(--app-font);text-align:left;cursor:pointer;white-space:nowrap;transition:background-color var(--core-duration-fast) var(--core-ease-standard);}
+.app-nav-item:hover{background:var(--core-color-nav-item-hover-bg);}
+.app-nav-item[data-active='true']{background:var(--core-color-nav-item-active-bg);color:var(--core-color-nav-item-active-text);font-weight:600;}
+.app-nav-item[data-active='true']:hover{background:var(--core-color-nav-item-active-bg);}
+.app-nav-item:disabled{cursor:default;background:transparent;}
+.app-subnav-item{margin-left:24px;width:calc(100% - 24px);min-height:28px;padding:6px 8px;}
+.app-search-trigger{display:flex;align-items:center;gap:8px;height:32px;width:100%;padding:0 8px 0 7px;border:1px solid var(--core-color-border-default);border-radius:8px;background:var(--core-color-surface-canvas);color:var(--core-color-text-muted);font:400 13px/1 var(--app-font);cursor:pointer;transition:background-color var(--core-duration-standard) var(--core-ease-standard);}
+.app-search-trigger:hover{background:var(--core-color-state-hover-bg);}
+.app-kbd{margin-left:auto;flex-shrink:0;padding:1px 5px;border:1px solid var(--core-color-border-default);border-radius:4px;background:var(--core-color-surface-card);color:var(--core-color-text-muted);font:400 10.5px/1.4 var(--app-font);}
+.app-composer{border:1px solid var(--core-color-border-default);border-radius:var(--core-radius-card);background:var(--core-color-surface-raised);transition:box-shadow var(--core-duration-fast) var(--core-ease-standard);}
+.app-composer:focus-within{box-shadow:0 0 0 2px var(--core-color-focus-ring);}
+.app-icon-btn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:var(--core-radius-pill);background:transparent;color:var(--core-color-text-muted);cursor:pointer;transition:background-color var(--core-duration-fast) var(--core-ease-standard);}
+.app-icon-btn:hover{background:var(--core-color-state-hover-bg);color:var(--core-color-text-primary);}
+.app-send-btn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:1px solid var(--core-color-action-primary-border);border-radius:var(--core-radius-pill);background:var(--core-color-action-primary-bg);color:var(--core-color-action-primary-fg);cursor:pointer;transition:background-color var(--core-duration-fast) var(--core-ease-standard);}
+.app-send-btn:hover{background:var(--core-color-action-primary-hover-bg);}
+.app-send-btn:disabled{background:var(--core-color-action-primary-disabled-bg);border-color:var(--core-color-action-primary-disabled-bg);color:var(--core-color-action-primary-disabled-fg);cursor:not-allowed;}
+.app-menu-item{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:var(--core-radius-control);background:transparent;color:var(--core-color-text-primary);font:400 13px/1.4 var(--app-font);text-align:left;cursor:pointer;}
+.app-menu-item:hover{background:var(--core-color-state-hover-bg);}
+
+@keyframes mdFade{ from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none} }
+@keyframes mdPulse{ 0%,100%{opacity:1} 50%{opacity:.4} }
+@keyframes mdDash{ to{ stroke-dashoffset:-14 } }
+@keyframes mdGrow{ from{ opacity:0 } to{ opacity:1 } }
+@keyframes mdSlide{ from{ transform:translateX(40px); opacity:.4 } to{ transform:none; opacity:1 } }

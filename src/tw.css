@@ -1,0 +1,12 @@
+/* Tailwind v4 entry for the design-system components.
+   Preflight is required — the DS components' utility classes assume the
+   base reset (zeroed button chrome, global border-style:solid). The
+   prototype survives it: its own styles are inline (beat preflight) and
+   tokens.css/core-theme.css are unlayered links (beat Tailwind layers).
+   Theme keys come from tailwind.config.cjs (cloned from the app repo). */
+@config "../tailwind.config.cjs";
+
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/preflight.css' layer(base);
+@import 'tailwindcss/utilities.css' layer(utilities);

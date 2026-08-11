@@ -1,0 +1,244 @@
+{
+  "id": "c5b96a4d-e8bd-455a-8a3a-ab6d0e5b0d69",
+  "name": "KAIROS PHYSIO PLLC",
+  "status": "in_review",
+  "formation": {
+    "date": "2022-06-13",
+    "entityType": "LLC",
+    "state": "NY"
+  },
+  "tin": null,
+  "addresses": [
+    {
+      "fullAddress": "801 Madison Ave Fl 3, New York, NY 10065-5930",
+      "state": "NY"
+    },
+    {
+      "fullAddress": "21611 48th Ave Apt 3B, Bayside, NY 11364-1311",
+      "state": "NY"
+    },
+    {
+      "fullAddress": "40 Little Neck Rd # 1B, Little Neck, NY 11363-1332",
+      "state": "NY"
+    }
+  ],
+  "people": [
+    {
+      "name": "Joshua Gee",
+      "titles": []
+    },
+    {
+      "name": "KAIROS PHYSICAL THERAPY PLLC",
+      "titles": [
+        "Service of Process"
+      ]
+    }
+  ],
+  "registrations": [
+    {
+      "state": "NY",
+      "status": "active",
+      "fileDate": "2022-06-13",
+      "fileNumber": "6511786",
+      "subStatus": null
+    }
+  ],
+  "reviewTasks": [
+    {
+      "key": "name",
+      "status": "failure",
+      "subLabel": "Unverified",
+      "label": "Business Name"
+    },
+    {
+      "key": "person_verification",
+      "status": "failure",
+      "subLabel": "Unverified",
+      "label": "People"
+    },
+    {
+      "key": "business_connections",
+      "status": "failure",
+      "subLabel": "Found",
+      "label": "Connections"
+    },
+    {
+      "key": "address_risk",
+      "status": "warning",
+      "subLabel": "Moderate",
+      "label": "Address Risk"
+    },
+    {
+      "key": "location_frequency",
+      "status": "warning",
+      "subLabel": "Moderate frequency",
+      "label": "Office Address"
+    },
+    {
+      "key": "sos_domestic_sub_status",
+      "status": "warning",
+      "subLabel": "Not Provided by State",
+      "label": "SOS Domestic Sub-status"
+    },
+    {
+      "key": "address_verification",
+      "status": "success",
+      "subLabel": "Verified",
+      "label": "Office Address"
+    },
+    {
+      "key": "address_deliverability",
+      "status": "success",
+      "subLabel": "Deliverable",
+      "label": "Office Address"
+    },
+    {
+      "key": "address_property_type",
+      "status": "success",
+      "subLabel": "Commercial",
+      "label": "Office Address"
+    },
+    {
+      "key": "sos_match",
+      "status": "success",
+      "subLabel": "Submitted Active",
+      "label": "SOS Filings"
+    },
+    {
+      "key": "sos_active",
+      "status": "success",
+      "subLabel": "Active",
+      "label": "SOS Filings"
+    },
+    {
+      "key": "sos_domestic",
+      "status": "success",
+      "subLabel": "Domestic Active",
+      "label": "SOS Filings"
+    },
+    {
+      "key": "watchlist",
+      "status": "success",
+      "subLabel": "No Hits",
+      "label": "Watchlist"
+    }
+  ],
+  "names": [
+    {
+      "name": "KAIROS PHYSIO PLLC",
+      "type": "legal",
+      "submitted": "Yes",
+      "notes": null
+    },
+    {
+      "name": "KAIROS PHYSICAL THERAPY PLLC",
+      "type": "registration",
+      "submitted": "No",
+      "notes": "Secretary of State filing name"
+    }
+  ],
+  "risk": {
+    "level": "moderate",
+    "score": 53
+  },
+  "connections": [
+    {
+      "name": "KAIROS 801 LLC",
+      "confidence": 0.957,
+      "sharedAddresses": [
+        "801 Madison Ave Fl 3, New York, NY 10065-5930",
+        "21611 48th Ave Apt 3B, Bayside, NY 11364-1311"
+      ]
+    },
+    {
+      "name": "J.L.W. INVESTORS, LTD.",
+      "confidence": 0.882,
+      "sharedAddresses": [
+        "801 Madison Ave Fl 3, New York, NY 10065-5930"
+      ]
+    }
+  ],
+  "website": {
+    "url": "http://kairosphysio.com",
+    "status": "online",
+    "title": "Physical Therapy & Strength Training | Upper East Side | Kairos Physio",
+    "description": "Concierge physical therapy and personal training practice providing orthopedic rehabilitation, strength training, and fitness services. Every session is performed one-on-one by a Doctor of Physical Therapy, utilizing advanced rehabilitation and fitness technology including dynamometry, body composition analysis, laser-based movement testing, and AI postural analysis.",
+    "domainCreated": "2021-04-06",
+    "registrar": "NameCheap, Inc.",
+    "platform": "Squarespace",
+    "technologies": {
+      "ecommerce": ["Magento", "Squarespace Commerce"]
+    }
+  },
+  "traffic": {
+    "snapshotDate": "2026-07-01",
+    "monthlyVisits": 1374,
+    "bounceRate": 0.4487,
+    "pagesPerVisit": 1.13,
+    "avgVisitDurationSeconds": 0,
+    "history": [
+      ["May", 1533],
+      ["Jun", 1908],
+      ["Jul", 1374]
+    ],
+    "sources": [
+      { "key": "direct", "label": "Direct", "share": 0 },
+      {
+        "key": "search", "label": "Search", "share": 0,
+        "children": [
+          { "key": "search_organic", "label": "Organic", "share": 0 },
+          { "key": "search_paid", "label": "Paid", "share": 0 }
+        ]
+      },
+      { "key": "referrals", "label": "Referral", "share": 0 },
+      {
+        "key": "social", "label": "Social", "share": 0,
+        "children": [
+          { "key": "social_organic", "label": "Organic", "share": 0 },
+          { "key": "social_paid", "label": "Paid", "share": 0 }
+        ]
+      },
+      { "key": "mail", "label": "Mail", "share": 0 },
+      { "key": "gen_ai", "label": "AI referrals", "share": 0 },
+      { "key": "display_ads", "label": "Display ads", "share": 0 }
+    ],
+    "topCountries": [
+      { "code": "VN", "name": "Vietnam", "share": 0.9829 },
+      { "code": "AT", "name": "Austria", "share": 0.0171 }
+    ],
+    "topKeywords": [
+      { "name": "1rm calculator", "volume": 39790, "cpc": 1.15 },
+      { "name": "1rm", "volume": 10650, "cpc": 1.85 },
+      { "name": "max weight calculator", "volume": 310, "cpc": 0.34 },
+      { "name": "1 rm berekenen", "volume": 170, "cpc": null }
+    ]
+  },
+  "profiles": [
+    {
+      "type": "Google",
+      "name": "KAIROS PHYSIO",
+      "url": "https://maps.google.com/?cid=17547289553437483798",
+      "submitted": false,
+      "status": "online",
+      "rating": 4.8,
+      "ratingCount": 10,
+      "categories": ["Physical therapy clinic"],
+      "lastActivity": "Last review Jul 14, 2026"
+    },
+    {
+      "type": "LinkedIn",
+      "name": "KAIROS PHYSIO | Physical Therapy & Fitness",
+      "url": "https://www.linkedin.com/company/kairosphysio",
+      "submitted": false,
+      "status": "online",
+      "followers": 14,
+      "companySize": "1 employee",
+      "lastActivity": "No recent posts"
+    }
+  ],
+  "industry": [
+    { "system": "MCC", "code": "8011", "category": "Doctors", "confidence": 100 },
+    { "system": "NAICS", "code": "621340", "category": "Offices of Physical, Occupational and Speech Therapists, and Audiologists", "confidence": 100 },
+    { "system": "NAICS", "code": "713940", "category": "Fitness and Recreational Sports Centers", "confidence": 75 }
+  ]
+}

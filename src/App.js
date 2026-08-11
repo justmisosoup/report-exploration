@@ -1,21 +1,39 @@
 import React from 'react';
+import {
+  MetaChip, RiskSeverityBadge,
+  ActionButton, IconActionButton,
+  Menu, MenuTrigger, MenuContent, MenuItem, MenuCheckboxItem, MenuLabel, MenuSeparator,
+  Avatar, SegmentedControl, SegmentedControlItem,
+  Tabs, TabsList, TabsTrigger, TabsCount,
+} from './ds.js';
+import ReportPage from './report/index.jsx';
+import VerificationPage from './report/verification.jsx';
+import WebPresencePage from './report/webPresence.jsx';
+import { reportDataFromBusiness, webPresenceDataFromBusiness } from './report/fromMiddesk.js';
+import middeskBusiness from './report/business.json';
 
 /* Identity Intelligence — ported from the Claude Design prototype
    (design/Identity Intelligence.dc.html). The original ran as a DCLogic
    class inside the dc-runtime; this is the same component on plain
    React.Component with the template's wrapper div as render(). */
 export default class App extends React.Component {
-  state = { direction:'A', view:'identity', timeIdx:5, sel:null, query:'address', expandedQ:0, showPath:true, intelQ:'', intelOpen:false, ingestedDoc:null, policy:null, openSec:null, openQ:null, attnOnly:false, decisionsOpen:false, attrsOpen:false, secOpen:{}, chat:[], chatInput:'', netMode:'graph', asOf:null, activeId:'vela' };
+  state = { direction:'A', view:'identity', timeIdx:5, sel:null, query:'address', expandedQ:0, showPath:true, intelQ:'', intelOpen:false, ingestedDoc:null, policy:null, openSec:null, openQ:null, attnOnly:false, decisionsOpen:false, attrsOpen:false, secOpen:{}, chats:[], activeChat:null, chatSeq:0, chatInput:'', netMode:'graph', asOf:null, activeId:'vela', openTabs:[], theme:'light', envMode:'live' };
 
   componentDidMount(){
     let s={};
     try{ s = JSON.parse(localStorage.getItem('mid-iv')||'{}'); }catch(e){}
+    try{ const ui=JSON.parse(localStorage.getItem('mid-ui')||'{}');
+      this.setState({theme:ui.theme||'light', envMode:ui.envMode||'live'});
+      if(ui.theme==='dark') document.body.setAttribute('data-theme','dark'); }catch(e){}
     this.setState({
       direction: s.direction || this.props.startDirection || 'C',
-      view: this.props.startView || 'intelligence',
+      view: s.view || this.props.startView || 'intelligence',
       timeIdx: (s.timeIdx ?? 5),
       query: s.query || 'address',
       showPath: this.props.showRiskPath !== false,
+      activeId: (s.activeId && this.PROFILES[s.activeId]) ? s.activeId : 'vela',
+      openTabs: Array.isArray(s.openTabs) ? s.openTabs.filter(id=>this.PROFILES[id]) : [],
+      navDrawer: s.navDrawer ?? this.state.navDrawer,
     });
     import('./policy.js').then(m=>{ this._statusOf=m.statusOf; this.setState({policy:m.POLICY, openSec:m.POLICY.find(sec=>sec.q.some(q=>m.statusOf(q.tone)!=='pass'&&m.statusOf(q.tone)!=='info'))?.id || m.POLICY[0].id}); }).catch(e=>console.warn('policy load',e));
     this._clearHover=()=>{ if(this.state.itmHover!=null) this.setState({itmHover:null}); };
@@ -26,10 +44,45 @@ export default class App extends React.Component {
     const sc=document.getElementById('mid-scroll'); if(sc&&this._clearHover) sc.removeEventListener('scroll',this._clearHover);
     if(this._clearHover) window.removeEventListener('scroll',this._clearHover,{capture:true});
   }
-  setS(patch){
+  setS(patch){ this.setState(patch); }
+  // Persist navigation so Vite full reloads land back on the same page.
+  componentDidUpdate(prevProps,prevState){
+    const KEYS=['direction','view','timeIdx','query','activeId','openTabs','navDrawer'];
+    if(KEYS.some(k=>prevState[k]!==this.state[k])){
+      try{ const o={}; KEYS.forEach(k=>o[k]=this.state[k]);
+        localStorage.setItem('mid-iv', JSON.stringify(o)); }catch(e){}
+    }
+  }
+  openIdentity(id){
+    this.setState(s=>({ openTabs: s.openTabs.includes(id)?s.openTabs:[...s.openTabs,id], activeId:id, asOf:null, secOpen:{}, openQ:null, attnOnly:false }));
+    this.setS({view:'identity',direction:'C'});
+  }
+  closeTab(id){
+    this.setState(s=>{
+      const openTabs = s.openTabs.filter(x=>x!==id);
+      const patch = {openTabs};
+      if(s.view==='identity' && s.activeId===id){
+        if(openTabs.length){ patch.activeId = openTabs[openTabs.length-1]; }
+        else { patch.view = 'list'; }
+      }
+      return patch;
+    });
+  }
+  setUI(patch){
     this.setState(patch, ()=>{
-      try{ const {direction,view,timeIdx,query}=this.state;
-        localStorage.setItem('mid-iv', JSON.stringify({direction,view,timeIdx,query})); }catch(e){}
+      try{ localStorage.setItem('mid-ui', JSON.stringify({theme:this.state.theme, envMode:this.state.envMode})); }catch(e){}
+      if(this.state.theme==='dark') document.body.setAttribute('data-theme','dark');
+      else document.body.removeAttribute('data-theme');
+    });
+  }
+  get activeChatObj(){ return (this.state.chats||[]).find(c=>c.id===this.state.activeChat)||null; }
+  newChat(){ this.setState({activeChat:null}); this.setS({view:'intelligence'}); }
+  closeChat(id){
+    this.setState(s=>{
+      const chats = (s.chats||[]).filter(c=>c.id!==id);
+      const patch = {chats};
+      if(s.activeChat===id) patch.activeChat = chats.length ? chats[chats.length-1].id : null;
+      return patch;
     });
   }
 
@@ -37,7 +90,7 @@ export default class App extends React.Component {
   get RISK(){ return {
     clear:{c:'var(--risk-clear)',label:'Clear'}, low:{c:'var(--risk-low)',label:'Low'},
     watch:{c:'var(--risk-watch)',label:'Watch'}, elev:{c:'var(--risk-elev)',label:'Elevated'},
-    high:{c:'var(--risk-high)',label:'High'}, mute:{c:'var(--core-color-text-muted)',label:'—'} }; }
+    high:{c:'var(--risk-high)',label:'High'}, mute:{c:'var(--core-color-text-muted)',label:'Neutral'} }; }
 
   /* ---------- data ---------- */
   /* ---------- per-identity profiles ---------- */
@@ -54,13 +107,14 @@ export default class App extends React.Component {
   get PROFILES(){ return {
     vela:{ id:'vela', name:'Vela Logistics, Inc.',
       facts:[['TIN','38-2049571'],['Entity type','C-Corporation'],['Formed','Mar 12, 2019'],['Home state','California'],['Foreign reg.','Texas'],['Status','Active · Good standing'],['Employees','~210'],['Industry','Trucking & logistics']],
+      insightSummary:'On its own record, Vela is clean: active in California and Texas, TIN matched, officers verified, no direct watchlist hits. The exposure is inherited. An April 2026 restructure quietly placed 60% control with Meridian Holdings, never disclosed on the application, pulling Vela into a three-entity cluster whose far edge holds a dissolved importer with an active watchlist hit. Screening adds one adverse-media item held for review against a connected principal.', insightRec:'Hold for manual review until the beneficial-owner change is resolved.',
       versions:[
-        {v:'v1',date:'Mar 12, 2019',title:'Entity formed',detail:'Registered as a California C-Corporation with the Secretary of State.',changes:[['Status','—','Active'],['Home state','—','California'],['Entity type','—','Corporation']],matters:false,weight:'Routine'},
-        {v:'v2',date:'Jun 02, 2021',title:'Foreign registration · TX',detail:'Registered to do business in Texas, expanding the operating footprint.',changes:[['Foreign registrations','—','Texas (active)']],matters:false,weight:'Routine'},
+        {v:'v1',date:'Mar 12, 2019',title:'Entity formed',detail:'Registered as a California C-Corporation with the Secretary of State.',changes:[['Status','None','Active'],['Home state','None','California'],['Entity type','None','Corporation']],matters:false,weight:'Routine'},
+        {v:'v2',date:'Jun 02, 2021',title:'Foreign registration · TX',detail:'Registered to do business in Texas, expanding the operating footprint.',changes:[['Foreign registrations','None','Texas (active)']],matters:false,weight:'Routine'},
         {v:'v3',date:'Feb 18, 2023',title:'Officer added · CFO',detail:'Sarah Nguyen appointed CFO and recorded as a 15% beneficial owner.',changes:[['Officers','3','4'],['Beneficial owners','1','2']],matters:true,weight:'Review',why:'A new ≥25%-adjacent owner changes who controls the business you are lending to.'},
-        {v:'v4',date:'Oct 04, 2024',title:'Principal address changed',detail:'Moved to 4400 Wilshire Blvd — a shared commercial address used by several unrelated entities.',changes:[['Principal address','1100 Alameda St','4400 Wilshire Blvd']],matters:true,weight:'Watch',why:'The new address is shared with unrelated businesses — a weak signal worth noting, not acting on.'},
+        {v:'v4',date:'Oct 04, 2024',title:'Principal address changed',detail:'Moved to 4400 Wilshire Blvd, a shared commercial address used by several unrelated entities.',changes:[['Principal address','1100 Alameda St','4400 Wilshire Blvd']],matters:true,weight:'Watch',why:'The new address is shared with unrelated businesses, a weak signal worth noting but not acting on.'},
         {v:'v5',date:'Aug 22, 2025',title:'UCC lien filed',detail:'A secured financing statement was filed by a commercial lender against equipment and receivables.',changes:[['UCC liens','0','1']],matters:true,weight:'Watch',why:'New secured debt affects collateral position and credit exposure.'},
-        {v:'v6',date:'Apr 21, 2026',title:'New beneficial owner detected',detail:'A Meridian Holdings restructure introduced a controlling owner connected — three hops out — to a high-risk entity.',changes:[['Controlling owner','Marcus Okonkwo','Meridian Holdings LLC'],['Network risk','Low','Elevated']],matters:true,weight:'Act',why:'Control passed to a holding company that links into a high-risk entity you cannot see from this record alone.'},
+        {v:'v6',date:'Apr 21, 2026',title:'New beneficial owner detected',detail:'A Meridian Holdings restructure introduced a controlling owner connected to a high-risk entity three hops out.',changes:[['Controlling owner','Marcus Okonkwo','Meridian Holdings LLC'],['Network risk','Low','Elevated']],matters:true,weight:'Act',why:'Control passed to a holding company that links into a high-risk entity you cannot see from this record alone.'},
       ],
       decisions:[
         {date:'Apr 21, 2026',title:'Beneficial owner change',outcome:'Pending',tone:'elev',mode:'Manual review',who:'Assigned · Dana Melas',why:'New controlling owner exposes an indirect link to a high-risk entity. Awaiting analyst decision.',sources:12},
@@ -69,8 +123,8 @@ export default class App extends React.Component {
         {date:'Mar 12, 2019',title:'Onboarding decision',outcome:'Approved',tone:'clear',mode:'Automatic',who:'Policy · KYB Standard',why:'Legal name, TIN, and registration verified across 18 sources. No watchlist hits.',sources:18},
       ],
       watch:[
-        {label:'Indirect high-risk link',sub:'Stillwater Imports — 3 hops via ownership',tone:'elev'},
-        {label:'Shared commercial address',sub:'4400 Wilshire Blvd — 2+ unrelated entities',tone:'watch'},
+        {label:'Indirect high-risk link',sub:'Stillwater Imports · 3 hops via ownership',tone:'elev'},
+        {label:'Shared commercial address',sub:'4400 Wilshire Blvd · 2+ unrelated entities',tone:'watch'},
         {label:'Active UCC lien',sub:'Equipment & receivables · since Aug 2025',tone:'watch'},
       ],
       dataAttrs:[
@@ -90,10 +144,10 @@ export default class App extends React.Component {
           {k:'Prior address',v:'1100 Alameda St (until 2024)',src:'Filings',muted:true},
         ]},
         {g:'People & ownership', rows:[
-          {k:'Beneficial owner',v:'Meridian Holdings LLC — 60%',src:'FinCEN BOI',shared:2,weight:'strong'},
-          {k:'Beneficial owner',v:'Sarah Nguyen — 15%',src:'FinCEN BOI'},
-          {k:'Officer',v:'Sarah Nguyen — CFO',src:'CA SoS'},
-          {k:'Officer',v:'Marcus Okonkwo — Director',src:'CA SoS',shared:2,weight:'strong'},
+          {k:'Beneficial owner',v:'Meridian Holdings LLC · 60%',src:'FinCEN BOI',shared:2,weight:'strong'},
+          {k:'Beneficial owner',v:'Sarah Nguyen · 15%',src:'FinCEN BOI'},
+          {k:'Officer',v:'Sarah Nguyen · CFO',src:'CA SoS'},
+          {k:'Officer',v:'Marcus Okonkwo · Director',src:'CA SoS',shared:2,weight:'strong'},
         ]},
         {g:'Digital footprint', rows:[
           {k:'Website',v:'velalogistics.com',src:'WHOIS · since 2019'},
@@ -102,22 +156,23 @@ export default class App extends React.Component {
           {k:'Last login IP',v:'Los Angeles, CA',src:'ID check'},
         ]},
         {g:'Risk records', rows:[
-          {k:'UCC lien',v:'1 active — equipment & receivables',src:'UCC · 2025',weight:'watch'},
+          {k:'UCC lien',v:'1 active · equipment & receivables',src:'UCC · 2025',weight:'watch'},
           {k:'Adverse media',v:'1 indirect (connected entity)',src:'Network',weight:'watch'},
         ]},
       ],
-      connected:{ summary:'Three identities share data attributes with Vela. Ownership reveals who controls it — and risk travels in through connections this record can’t show on its own.',
+      connected:{ summary:'Three identities share data attributes with Vela. Ownership reveals who controls it. Risk travels in through connections this record can’t show on its own.',
         note:'Meridian Holdings is itself 75% owned by Marcus Okonkwo',
         own:[{id:'meridian',pct:60,rel:'Controlling owner',risk:'watch',note:'Holding company · added in the Apr 2026 restructure'},{id:'nguyen',pct:15,rel:'Direct owner · CFO',risk:'clear',note:'Individual beneficial owner'}],
-        conn:[{id:'harbor',via:'Shared officer — M. Okonkwo',strength:'strong',risk:'watch'},{id:'stillwater',via:'Shared officer · 3 hops out',strength:'moderate',risk:'high',flag:true},{id:'cedar',via:'Shared commercial address',strength:'weak',risk:'clear'}] },
+        conn:[{id:'harbor',via:'Shared officer · M. Okonkwo',strength:'strong',risk:'watch'},{id:'stillwater',via:'Shared officer · 3 hops out',strength:'moderate',risk:'high',flag:true},{id:'cedar',via:'Shared commercial address',strength:'weak',risk:'clear'}] },
       answers:null },
 
     anchor:{ id:'anchor', name:'Anchor Drayage Co.',
       facts:[['TIN','82-6647120'],['Entity type','Corporation'],['Formed','Jul 09, 2016'],['Home state','California'],['Status','Active · Good standing'],['Employees','~85'],['Industry','Trucking & logistics']],
+      insightSummary:'Every check passes. Registration, ownership, and TIN were re-verified at the March 2026 annual review with no exceptions, and screening surfaces no watchlist, lien, or adverse-media findings. Anchor is wholly controlled by Meridian Holdings, worth noting for relationship limits, but nothing in the network carries risk into the business.', insightRec:'Clear to approve.',
       versions:[
-        {v:'v1',date:'Jul 09, 2016',title:'Entity formed',detail:'Registered as a California corporation.',changes:[['Status','—','Active'],['Home state','—','California']],matters:false,weight:'Routine'},
+        {v:'v1',date:'Jul 09, 2016',title:'Entity formed',detail:'Registered as a California corporation.',changes:[['Status','None','Active'],['Home state','None','California']],matters:false,weight:'Routine'},
         {v:'v2',date:'May 30, 2023',title:'Acquired by Meridian',detail:'Meridian Holdings LLC acquired 100% of Anchor Drayage.',changes:[['Owner','Founders','Meridian Holdings LLC']],matters:true,weight:'Review',why:'A change of control brings the acquirer’s risk profile into scope.'},
-        {v:'v3',date:'Mar 02, 2026',title:'Annual refresh',detail:'Registration and ownership re-verified. No changes.',changes:[['SoS status','—','Confirmed']],matters:false,weight:'Routine'},
+        {v:'v3',date:'Mar 02, 2026',title:'Annual refresh',detail:'Registration and ownership re-verified. No changes.',changes:[['SoS status','None','Confirmed']],matters:false,weight:'Routine'},
       ],
       decisions:[
         {date:'Mar 02, 2026',title:'Annual review',outcome:'Approved',tone:'clear',mode:'Automatic',who:'Policy · KYB Standard',why:'Registration, ownership, and TIN re-verified. No exceptions.',sources:14},
@@ -133,7 +188,7 @@ export default class App extends React.Component {
           {k:'SoS status',v:'Active · good standing',src:'CA SoS'},
         ]},
         {g:'People & ownership', rows:[
-          {k:'Beneficial owner',v:'Meridian Holdings LLC — 100%',src:'FinCEN BOI',shared:2,weight:'strong'},
+          {k:'Beneficial owner',v:'Meridian Holdings LLC · 100%',src:'FinCEN BOI',shared:2,weight:'strong'},
         ]},
         {g:'Digital footprint', rows:[
           {k:'Website',v:'anchordrayage.com',src:'WHOIS · since 2016'},
@@ -142,13 +197,14 @@ export default class App extends React.Component {
       ],
       connected:{ summary:'Anchor is wholly owned by Meridian Holdings, placing it in the same control structure as Vela.',
         own:[{id:'meridian',pct:100,rel:'Sole owner',risk:'watch',note:'Wholly owned subsidiary'}],
-        conn:[{id:'vela',via:'Common owner — Meridian',strength:'strong',risk:'watch'}] },
+        conn:[{id:'vela',via:'Common owner · Meridian',strength:'strong',risk:'watch'}] },
       answers:{} },
 
     harbor:{ id:'harbor', name:'Harbor Freight Partners LLC',
       facts:[['TIN','47-2210934'],['Entity type','LLC'],['Formed','Nov 20, 2018'],['Home state','Nevada'],['Status','Active · Good standing'],['Employees','~40'],['Industry','Freight brokerage']],
+      insightSummary:"Harbor's own record is in order, with an active registration, verified ownership, and clean screening. The watch item is relational: a shared officer connects Harbor to a high-risk entity two hops out, a path risk can travel. The February 2026 network review cleared it with monitoring in place.", insightRec:'Approve and keep network monitoring active.',
       versions:[
-        {v:'v1',date:'Nov 20, 2018',title:'Entity formed',detail:'Registered as a Nevada LLC.',changes:[['Status','—','Active'],['Home state','—','Nevada']],matters:false,weight:'Routine'},
+        {v:'v1',date:'Nov 20, 2018',title:'Entity formed',detail:'Registered as a Nevada LLC.',changes:[['Status','None','Active'],['Home state','None','Nevada']],matters:false,weight:'Routine'},
         {v:'v2',date:'Sep 12, 2024',title:'Officer added',detail:'J. Reyes added as a managing officer.',changes:[['Officers','1','2']],matters:true,weight:'Review',why:'A shared officer connects Harbor into a broader network.'},
         {v:'v3',date:'Feb 14, 2026',title:'Network flag',detail:'A shared officer links Harbor to a high-risk entity two hops out.',changes:[['Network risk','Low','Watch']],matters:true,weight:'Watch',why:'Risk can travel through the shared officer relationship.'},
       ],
@@ -157,8 +213,8 @@ export default class App extends React.Component {
         {date:'Nov 20, 2018',title:'Onboarding decision',outcome:'Approved',tone:'clear',mode:'Automatic',who:'Policy · KYB Standard',why:'Registration and TIN verified. No exceptions.',sources:11},
       ],
       watch:[
-        {label:'Shared officer',sub:'M. Okonkwo — also at Vela & Meridian',tone:'watch'},
-        {label:'Indirect high-risk link',sub:'Stillwater Imports — 2 hops via J. Reyes',tone:'watch'},
+        {label:'Shared officer',sub:'M. Okonkwo · also at Vela & Meridian',tone:'watch'},
+        {label:'Indirect high-risk link',sub:'Stillwater Imports · 2 hops via J. Reyes',tone:'watch'},
       ],
       dataAttrs:[
         {g:'Registration', rows:[
@@ -169,8 +225,8 @@ export default class App extends React.Component {
           {k:'SoS status',v:'Active · good standing',src:'NV SoS'},
         ]},
         {g:'People & ownership', rows:[
-          {k:'Officer',v:'Marcus Okonkwo — Director',src:'NV SoS',shared:2,weight:'strong'},
-          {k:'Officer',v:'J. Reyes — Managing officer',src:'NV SoS',shared:2,weight:'strong'},
+          {k:'Officer',v:'Marcus Okonkwo · Director',src:'NV SoS',shared:2,weight:'strong'},
+          {k:'Officer',v:'J. Reyes · Managing officer',src:'NV SoS',shared:2,weight:'strong'},
         ]},
         {g:'Digital footprint', rows:[
           {k:'Website',v:'harborfreightpartners.com',src:'WHOIS'},
@@ -178,18 +234,19 @@ export default class App extends React.Component {
       ],
       connected:{ summary:'Harbor shares officers with both Vela and a high-risk entity, making it a conduit for network risk.',
         own:[],
-        conn:[{id:'okonkwo',via:'Officer — also at Vela',strength:'strong',risk:'watch'},{id:'reyes',via:'Co-officer',strength:'strong',risk:'elev'},{id:'stillwater',via:'2 hops via J. Reyes',strength:'moderate',risk:'high',flag:true}] },
+        conn:[{id:'okonkwo',via:'Officer · also at Vela',strength:'strong',risk:'watch'},{id:'reyes',via:'Co-officer',strength:'strong',risk:'elev'},{id:'stillwater',via:'2 hops via J. Reyes',strength:'moderate',risk:'high',flag:true}] },
       answers:{
         'What does the UBO structure look like?':{a:'No 25%+ owner',tone:'clear',insight:'Member-managed LLC with no single 25%+ beneficial owner on file.'},
         'Which type best characterizes the org physical address?':{a:'Commercial',tone:'clear',insight:'Registered at a dedicated commercial office in Reno, NV.'},
-        'Do the BOs have web hits for negative news?':{a:'1 — indirect',tone:'watch',insight:'Adverse media tied to a connected entity through the shared officer, not Harbor directly.'},
+        'Do the BOs have web hits for negative news?':{a:'1 · indirect',tone:'watch',insight:'Adverse media tied to a connected entity through the shared officer, not Harbor directly.'},
         "What is the org's AML risk rating?":{a:'Medium',tone:'watch',insight:'Elevated by a shared-officer link into a high-risk network; no direct exposure.'},
       } },
 
     meridian:{ id:'meridian', name:'Meridian Holdings LLC',
       facts:[['TIN','61-1180255'],['Entity type','LLC · Holding co.'],['Formed','Apr 02, 2015'],['Home state','Delaware'],['Status','Active · Good standing'],['Subsidiaries','2'],['Industry','Holding company']],
+      insightSummary:'The record itself is unremarkable; the findings are structural. Meridian took a controlling 60% stake in Vela Logistics in April 2026 and now controls two monitored businesses, concentrating portfolio exposure through a single owner.', insightRec:'Review at the relationship level before extending further exposure.',
       versions:[
-        {v:'v1',date:'Apr 02, 2015',title:'Entity formed',detail:'Registered as a Delaware holding company.',changes:[['Status','—','Active'],['Home state','—','Delaware']],matters:false,weight:'Routine'},
+        {v:'v1',date:'Apr 02, 2015',title:'Entity formed',detail:'Registered as a Delaware holding company.',changes:[['Status','None','Active'],['Home state','None','Delaware']],matters:false,weight:'Routine'},
         {v:'v2',date:'May 30, 2023',title:'Acquired Anchor Drayage',detail:'Acquired 100% of Anchor Drayage Co.',changes:[['Subsidiaries','0','1']],matters:true,weight:'Review',why:'Expanding control footprint across multiple monitored businesses.'},
         {v:'v3',date:'Apr 21, 2026',title:'Took control of Vela',detail:'Acquired a controlling 60% interest in Vela Logistics.',changes:[['Subsidiaries','1','2'],['Controls','Anchor','Anchor · Vela']],matters:true,weight:'Watch',why:'Concentration of control across your portfolio warrants a relationship-level view.'},
       ],
@@ -210,12 +267,12 @@ export default class App extends React.Component {
           {k:'SoS status',v:'Active · good standing',src:'DE SoS'},
         ]},
         {g:'People & ownership', rows:[
-          {k:'Beneficial owner',v:'Marcus Okonkwo — 75%',src:'FinCEN BOI',shared:2,weight:'strong'},
-          {k:'Subsidiary',v:'Anchor Drayage Co. — 100%',src:'BOI'},
-          {k:'Subsidiary',v:'Vela Logistics — 60%',src:'BOI'},
+          {k:'Beneficial owner',v:'Marcus Okonkwo · 75%',src:'FinCEN BOI',shared:2,weight:'strong'},
+          {k:'Subsidiary',v:'Anchor Drayage Co. · 100%',src:'BOI'},
+          {k:'Subsidiary',v:'Vela Logistics · 60%',src:'BOI'},
         ]},
       ],
-      connected:{ summary:'Meridian is the control hub — it owns Anchor outright and holds a controlling stake in Vela, all traced to a single individual.',
+      connected:{ summary:'Meridian is the control hub: it owns Anchor outright and holds a controlling stake in Vela, all traced to a single individual.',
         note:'Both subsidiaries inherit Meridian’s ownership risk',
         own:[{id:'okonkwo',pct:75,rel:'Controlling owner',risk:'low',note:'Individual beneficial owner'}],
         conn:[{id:'vela',via:'Owns 60%',strength:'strong',risk:'watch'},{id:'anchor',via:'Owns 100%',strength:'strong',risk:'low'}] },
@@ -227,14 +284,15 @@ export default class App extends React.Component {
 
     cedar:{ id:'cedar', name:'Cedar & Vine Café LLC',
       facts:[['TIN','88-4471902'],['Entity type','LLC'],['Formed','Aug 15, 2022'],['Home state','California'],['Status','Active · Good standing'],['Employees','~18'],['Industry','Food service']],
+      insightSummary:"All checks pass. Registration and ownership were re-verified at the January 2026 refresh with no changes, and screening is clean. Cedar's only network note is a commercial address shared with other tenants, a weak and non-directional link recorded for context.", insightRec:'Clear to approve.',
       versions:[
-        {v:'v1',date:'Aug 15, 2022',title:'Entity formed',detail:'Registered as a California LLC.',changes:[['Status','—','Active'],['Home state','—','California']],matters:false,weight:'Routine'},
-        {v:'v2',date:'Jan 09, 2026',title:'Annual refresh',detail:'Registration and ownership re-verified. No changes.',changes:[['SoS status','—','Confirmed']],matters:false,weight:'Routine'},
+        {v:'v1',date:'Aug 15, 2022',title:'Entity formed',detail:'Registered as a California LLC.',changes:[['Status','None','Active'],['Home state','None','California']],matters:false,weight:'Routine'},
+        {v:'v2',date:'Jan 09, 2026',title:'Annual refresh',detail:'Registration and ownership re-verified. No changes.',changes:[['SoS status','None','Confirmed']],matters:false,weight:'Routine'},
       ],
       decisions:[
         {date:'Aug 15, 2022',title:'Onboarding decision',outcome:'Approved',tone:'clear',mode:'Automatic',who:'Policy · KYB Standard',why:'Legal name, TIN, and single owner verified. No exceptions.',sources:13},
       ],
-      watch:[{label:'Shared commercial address',sub:'4400 Wilshire Blvd — weak signal only',tone:'clear'}],
+      watch:[{label:'Shared commercial address',sub:'4400 Wilshire Blvd · weak signal only',tone:'clear'}],
       dataAttrs:[
         {g:'Registration', rows:[
           {k:'Legal name',v:'Cedar & Vine Café LLC',src:'CA SoS'},
@@ -247,10 +305,10 @@ export default class App extends React.Component {
           {k:'Registered address',v:'4400 Wilshire Blvd, Los Angeles, CA',src:'CA SoS',shared:3,weight:'weak'},
         ]},
         {g:'People & ownership', rows:[
-          {k:'Beneficial owner',v:'Elena Cruz — 100%',src:'FinCEN BOI'},
+          {k:'Beneficial owner',v:'Elena Cruz · 100%',src:'FinCEN BOI'},
         ]},
       ],
-      connected:{ summary:'Cedar & Vine shares only a commercial address with Vela — a weak signal, not a control relationship.',
+      connected:{ summary:'Cedar & Vine shares only a commercial address with Vela. A weak signal, not a control relationship.',
         own:[],
         conn:[{id:'vela',via:'Shared commercial address',strength:'weak',risk:'clear'}] },
       answers:{} },
@@ -258,13 +316,13 @@ export default class App extends React.Component {
     brightpath:{ id:'brightpath', name:'BrightPath Consulting',
       facts:[['TIN','93-2205518'],['Entity type','LLC'],['Formed','Mar 28, 2021'],['Home state','California'],['Status','Active · Good standing'],['Employees','~9'],['Industry','Professional services']],
       versions:[
-        {v:'v1',date:'Mar 28, 2021',title:'Entity formed',detail:'Registered as a California LLC.',changes:[['Status','—','Active'],['Home state','—','California']],matters:false,weight:'Routine'},
-        {v:'v2',date:'Dec 18, 2025',title:'Annual refresh',detail:'Registration re-verified. No changes.',changes:[['SoS status','—','Confirmed']],matters:false,weight:'Routine'},
+        {v:'v1',date:'Mar 28, 2021',title:'Entity formed',detail:'Registered as a California LLC.',changes:[['Status','None','Active'],['Home state','None','California']],matters:false,weight:'Routine'},
+        {v:'v2',date:'Dec 18, 2025',title:'Annual refresh',detail:'Registration re-verified. No changes.',changes:[['SoS status','None','Confirmed']],matters:false,weight:'Routine'},
       ],
       decisions:[
         {date:'Mar 28, 2021',title:'Onboarding decision',outcome:'Approved',tone:'clear',mode:'Automatic',who:'Policy · KYB Standard',why:'Registration, TIN, and owner verified. No exceptions.',sources:12},
       ],
-      watch:[{label:'Shared mailing address',sub:'4400 Wilshire Blvd — weak signal only',tone:'clear'}],
+      watch:[{label:'Shared mailing address',sub:'4400 Wilshire Blvd · weak signal only',tone:'clear'}],
       dataAttrs:[
         {g:'Registration', rows:[
           {k:'Legal name',v:'BrightPath Consulting LLC',src:'CA SoS'},
@@ -277,18 +335,19 @@ export default class App extends React.Component {
           {k:'Mailing address',v:'4400 Wilshire Blvd, Los Angeles, CA',src:'Filings',shared:3,weight:'weak'},
         ]},
         {g:'People & ownership', rows:[
-          {k:'Beneficial owner',v:'Priya Anand — 100%',src:'FinCEN BOI'},
+          {k:'Beneficial owner',v:'Priya Anand · 100%',src:'FinCEN BOI'},
         ]},
       ],
-      connected:{ summary:'BrightPath shares only a mailing address with Vela — no ownership or officer overlap.',
+      connected:{ summary:'BrightPath shares only a mailing address with Vela. No ownership or officer overlap.',
         own:[],
         conn:[{id:'vela',via:'Shared mailing address',strength:'weak',risk:'clear'}] },
       answers:{} },
 
     stillwater:{ id:'stillwater', name:'Stillwater Imports LLC',
       facts:[['TIN','59-3387461'],['Entity type','LLC'],['Formed','Jun 11, 2017'],['Home state','Florida'],['Status','Dissolved'],['Industry','Import / export']],
+      insightSummary:'Materially adverse. The Florida registration lapsed and the entity was administratively dissolved in April 2026, severing standing agreements, and an active watchlist hit sits on the record. Stillwater is also the high-risk endpoint of the ownership path that reaches Vela Logistics.', insightRec:'Decline and review connected entities.',
       versions:[
-        {v:'v1',date:'Jun 11, 2017',title:'Entity formed',detail:'Registered as a Florida LLC.',changes:[['Status','—','Active'],['Home state','—','Florida']],matters:false,weight:'Routine'},
+        {v:'v1',date:'Jun 11, 2017',title:'Entity formed',detail:'Registered as a Florida LLC.',changes:[['Status','None','Active'],['Home state','None','Florida']],matters:false,weight:'Routine'},
         {v:'v2',date:'Oct 03, 2024',title:'Watchlist hit',detail:'A beneficial owner matched an OFAC-adjacent watchlist entry.',changes:[['Watchlist','Clear','Hit'],['Risk','Low','High']],matters:true,weight:'Act',why:'A direct watchlist hit is a hard stop for onboarding and monitoring.'},
         {v:'v3',date:'Apr 19, 2026',title:'Dissolved',detail:'The Florida registration lapsed and the entity was administratively dissolved.',changes:[['SoS status','Active','Dissolved']],matters:true,weight:'Act',why:'A dissolved counterparty cannot be transacted with and severs standing agreements.'},
       ],
@@ -310,20 +369,20 @@ export default class App extends React.Component {
           {k:'SoS status',v:'Dissolved',src:'FL SoS',weight:'watch'},
         ]},
         {g:'People & ownership', rows:[
-          {k:'Beneficial owner',v:'J. Reyes — 80%',src:'FinCEN BOI',shared:2,weight:'strong'},
+          {k:'Beneficial owner',v:'J. Reyes · 80%',src:'FinCEN BOI',shared:2,weight:'strong'},
         ]},
         {g:'Risk records', rows:[
-          {k:'Watchlist',v:'1 hit — OFAC-adjacent',src:'OFAC',weight:'watch'},
+          {k:'Watchlist',v:'1 hit · OFAC-adjacent',src:'OFAC',weight:'watch'},
           {k:'Adverse media',v:'3 articles',src:'Media',weight:'watch'},
         ]},
       ],
-      connected:{ summary:'Stillwater is the high-risk node your other identities connect back to — through a shared officer, two and three hops out.',
+      connected:{ summary:'Stillwater is the high-risk node your other identities connect back to through a shared officer, two and three hops out.',
         own:[],
-        conn:[{id:'reyes',via:'Owner / officer — 80%',strength:'strong',risk:'high'},{id:'harbor',via:'Shared officer · 2 hops',strength:'moderate',risk:'high',flag:true},{id:'vela',via:'Shared officer · 3 hops',strength:'moderate',risk:'high',flag:true}] },
+        conn:[{id:'reyes',via:'Owner / officer · 80%',strength:'strong',risk:'high'},{id:'harbor',via:'Shared officer · 2 hops',strength:'moderate',risk:'high',flag:true},{id:'vela',via:'Shared officer · 3 hops',strength:'moderate',risk:'high',flag:true}] },
       answers:{
         'Any sanctions or watchlist exposure?':{a:'Watchlist hit',tone:'high',insight:'A beneficial owner matched an OFAC-adjacent watchlist entry (2024). Direct exposure.'},
         "What is the org's AML risk rating?":{a:'High',tone:'high',insight:'Rated High for a direct watchlist hit plus adverse media on a beneficial owner.'},
-        'Do the BOs have web hits for negative news?':{a:'3 — direct',tone:'high',insight:'Three adverse-media articles tied directly to the 80% beneficial owner.'},
+        'Do the BOs have web hits for negative news?':{a:'3 · direct',tone:'high',insight:'Three adverse-media articles tied directly to the 80% beneficial owner.'},
         'Reason to believe there are 25%+ owners not on the application?':{a:'Yes',tone:'high',insight:'Ownership structure is opaque; the disclosed owner does not reconcile with import records.'},
         'Which type best characterizes the org physical address?':{a:'Vacant',tone:'watch',insight:'The registered Florida address is a vacant unit following dissolution.'},
       } },
@@ -353,10 +412,21 @@ export default class App extends React.Component {
     high:{bg:'var(--core-color-risk-critical-bg)',fg:'var(--core-color-risk-critical-fg)',border:'var(--core-color-risk-critical-border)'},
     mute:{bg:'var(--core-color-status-neutral-bg)',fg:'var(--core-color-status-neutral-fg)',border:'var(--core-color-status-neutral-border)'} }; }
   mono(t,extra){ return React.createElement('span',{style:{fontFamily:'var(--app-font)',fontSize:11,fontWeight:600,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-secondary)',...(extra||{})}},t); }
+  // Real @core Badge components (design-system/core/Badge.tsx)
+  coreBadge(text,family,tone,extra,size){
+    const h=React.createElement;
+    if(family==='risk') return h(RiskSeverityBadge,{severity:tone,size:size==='compact'?'standard':'compact',style:extra},text);
+    return h(MetaChip,{tone,size:size||'xs',style:extra},text);
+  }
+  // statusOf() result → @core status tone (MetaChip vocabulary)
+  STATUS_TONE(st){ return ({pass:'success',review:'warning',flag:'danger'})[st]||'neutral'; }
+  // App tone vocabulary → @core Badge (family, tone) token pair
+  BADGE_FAMILY(tone){ return ({
+    clear:['status','success'], low:['risk','low'], watch:['risk','moderate'],
+    elev:['risk','high'], high:['risk','critical'], mute:['status','neutral']})[tone]||['status','neutral']; }
   pill(t,tone,extra){
-    const tn=this.TONES[tone]||this.TONES.mute;
-    return React.createElement('span',{style:{display:'inline-flex',alignItems:'center',gap:6,padding:'4px 8px',borderRadius:'var(--core-radius-pill)',minHeight:20,fontFamily:'var(--app-font)',fontSize:'var(--core-font-size-xs)',fontWeight:500,background:tn.bg,color:tn.fg,border:'1px solid '+tn.border,whiteSpace:'nowrap',...(extra||{})}},
-      React.createElement('span',{style:{width:4,height:4,borderRadius:'50%',background:tn.fg,flexShrink:0}}), t);
+    const [family,tn]=this.BADGE_FAMILY(tone);
+    return this.coreBadge(t,family,tn,extra);
   }
   panel(style,...kids){ return React.createElement('div',{style:{background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',borderRadius:'var(--core-radius-card)',boxShadow:'var(--core-color-elevation-card)',overflow:'hidden',...(style||{})}},...kids); }
   panelHead(title,right){ return React.createElement('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'14px 20px',borderBottom:'1px solid var(--core-color-border-divider)'}},
@@ -368,8 +438,11 @@ export default class App extends React.Component {
     const P={
       home:['M3 11 12 4l9 7','M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10'],
       building:['M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z','M2 22h20','M9 6h1','M14 6h1','M9 10h1','M14 10h1','M9 14h1','M14 14h1','M9 18h1','M14 18h1'],
+      fileText:['M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z','M14 2v4a2 2 0 0 0 2 2h4','M10 9H8','M16 13H8','M16 17H8'],
       sparkles:['M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z','M19 17l.9 2.1L22 20l-2.1.9L19 23l-.9-2.1L16 20l2.1-.9L19 17z'],
       search:['M21 21l-4.3-4.3','M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z'],
+      panelLeft:['M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z','M9 3v18'],
+      settings:['M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z','M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'],
       chevronUp:['m18 15-6-6-6 6'],
       chevronDown:['m6 9 6 6 6-6'],
       chevronsUpDown:['m7 15 5 5 5-5','m7 9 5-5 5 5'],
@@ -377,71 +450,95 @@ export default class App extends React.Component {
       arrowUp:['M12 19V5','m5 12 7-7 7 7'],
       layers:['M12 2 2 7l10 5 10-5-10-5z','m2 17 10 5 10-5','m2 12 10 5 10-5'],
       bot:['M12 8V4H8','M4 8h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z','M2 14h2','M20 14h2','M15 13v2','M9 13v2'],
+      sun:['M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z','M12 1v2','M12 21v2','m4.22 4.22 1.42 1.42','m18.36 18.36 1.42 1.42','M1 12h2','M21 12h2','m4.22 19.78 1.42-1.42','m18.36 5.64 1.42-1.42'],
+      moon:['M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'],
+      logout:['M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4','m16 17 5-5-5-5','M21 12H9'],
     }[name]||[];
     return h('svg',{width:s,height:s,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.5,strokeLinecap:'round',strokeLinejoin:'round',style:{flexShrink:0}}, ...P.map((d,i)=>h('path',{key:i,d})));
   }
   Sidebar(){
-    const h=React.createElement; const {view}=this.state; const navOpen=this.state.navOpen!==false;
+    const h=React.createElement; const {view}=this.state;
     const icon=(name)=>h('span',{style:{display:'grid',placeItems:'center',width:16,height:16,flexShrink:0}}, this.navIcon(name));
-    const item=(label,ic,active,onClick,muted)=> h('button',{className:'app-nav-item',onClick:muted?undefined:onClick,disabled:!!muted,'data-active':active?'true':undefined},
-      icon(ic), h('span',{style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',opacity:muted?.55:1}},label),
-      muted?h('span',{style:{fontSize:'var(--core-font-size-xs)',fontWeight:500,color:'var(--core-color-status-neutral-fg)',background:'var(--core-color-status-neutral-bg)',border:'1px solid var(--core-color-status-neutral-border)',borderRadius:'var(--core-radius-pill)',padding:'2px 6px'}},'TBD'):null);
-    const subItem=(label,active,onClick)=> h('button',{className:'app-nav-item app-subnav-item',onClick,'data-active':active?'true':undefined},
-      h('span',{style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis'}},label));
-    const groupActive = view==='identity';
+    const item=(label,ic,active,onClick)=> h('button',{className:'app-nav-item',onClick,'data-active':active?'true':undefined},
+      icon(ic), h('span',{style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis'}},label));
     return h('aside',{style:{width:224,flexShrink:0,background:'var(--core-color-nav-bg)',color:'var(--core-color-nav-item-text)',borderRight:'1px solid var(--core-color-nav-border)',display:'flex',flexDirection:'column',overflow:'hidden'}},
-      // header — matches AppShellSidebarHeader (58px, px-2) + brand lockup
-      h('div',{style:{display:'flex',alignItems:'center',height:58,padding:'0 8px',flexShrink:0}},
+      // header — brand lockup lives here now that the top bar carries the nav toggle
+      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',height:58,padding:'0 8px',flexShrink:0}},
         h('div',{style:{display:'flex',alignItems:'center',gap:10,height:32,padding:'0 8px',color:'var(--core-color-text-primary)'}},
           h('svg',{width:25,height:14,viewBox:'0 0 30 16',fill:'currentColor',style:{flexShrink:0}}, h('path',{d:'M14.868 15.99V15.995H17.8334V13.2048V13.2011H17.8294L4.14417 0H1.18008V2.79517L14.868 15.99ZM0 15.995H4.48643V11.7661H0V15.995ZM26.7415 15.99V15.995H29.7069V13.2048V13.2011H29.7029L22.8603 6.60055L16.0177 0H13.0536V2.79517L26.7415 15.99Z'})),
-          h('span',{style:{fontSize:15,fontWeight:600,letterSpacing:'-.01em'}},'Middesk'))),
-      // search trigger — matches the /app rail search (h-8, rounded-lg, ⌘K)
-      h('div',{style:{padding:'0 8px 4px',flexShrink:0}},
-        h('button',{className:'app-search-trigger',onClick:()=>this.setS({view:'intelligence'})},
-          this.navIcon('search'),
-          h('span',{style:{minWidth:0,flex:1,textAlign:'left',overflow:'hidden',textOverflow:'ellipsis'}},'Search…'),
-          h('span',{className:'app-kbd'},'⌘K'))),
-      // nav — px-2 pt-2 pb-4, gap-1; primary items then the entity group disclosure
+          h('span',{style:{fontSize:15,fontWeight:600,letterSpacing:'-.01em'}},'Middesk')),
+        h('div',{style:{display:'flex',alignItems:'center',gap:2}},
+          h(IconActionButton,{variant:'quiet','aria-label':'Search (⌘K)',title:'Search (⌘K)',onClick:()=>this.newChat()}, this.navIcon('search')),
+          h(IconActionButton,{variant:'quiet','aria-label':'Hide navigation',title:'Hide navigation',onClick:()=>this.setState({navDrawer:false})}, this.navIcon('panelLeft')))),
       h('nav',{style:{display:'flex',flexDirection:'column',gap:4,padding:'8px 8px 16px',flex:1,minHeight:0,overflowY:'auto'}},
-        item('Intelligence','sparkles', view==='intelligence', ()=>this.setS({view:'intelligence'})),
-        item('Identities','building', view==='list', ()=>this.setS({view:'list'})),
-        h('div',null,
-          h('button',{className:'app-nav-item','data-active':groupActive?'true':undefined,'aria-expanded':navOpen,onClick:()=>this.setState({navOpen:!navOpen})},
-            icon('building'), h('span',{style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis'}},'Vela Logistics, Inc.'),
-            h('span',{style:{display:'grid',placeItems:'center',width:16,height:16,marginLeft:'auto',flexShrink:0,transform:navOpen?'none':'rotate(180deg)',transition:'transform var(--core-duration-standard) var(--core-ease-emphasized)'}}, this.navIcon('chevronUp'))),
-          h('div',{style:{display:'grid',gridTemplateRows:navOpen?'1fr':'0fr',opacity:navOpen?1:0,overflow:'hidden',transition:'grid-template-rows var(--core-duration-standard) var(--core-ease-emphasized), opacity var(--core-duration-standard) var(--core-ease-emphasized)'}},
-            h('div',{style:{minHeight:0}},
-              h('div',{style:{marginTop:4,display:'grid',gap:2}},
-                subItem('Identity', view==='identity'&&this.state.direction!=='B', ()=>this.setS({view:'identity',direction:'C'})),
-                subItem('Network', view==='identity'&&this.state.direction==='B', ()=>this.setS({view:'identity',direction:'B'})))))))
-      ,
-      // footer — account row (mt-auto, border-t divider, p-2)
+        item('Intelligence','sparkles', view==='intelligence', ()=>this.newChat()),
+        item('Identities','building', view==='list'||view==='identity', ()=>this.setS({view:'list'})),
+        item('Report','fileText', view==='report', ()=>this.setS({view:'report'}))),
+      // footer — account row (mt-auto, border-t divider, p-2) with a popover user menu
       h('div',{style:{marginTop:'auto',borderTop:'1px solid var(--core-color-border-divider)',padding:8,flexShrink:0}},
-        h('button',{className:'app-nav-item',style:{minHeight:44}},
-          h('span',{style:{width:28,height:28,borderRadius:'50%',background:'var(--core-color-avatar-5-bg)',color:'var(--core-color-avatar-5-fg)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--app-font)',fontSize:11,fontWeight:600,flexShrink:0}},'DM'),
-          h('span',{style:{display:'flex',flexDirection:'column',lineHeight:1.3,flex:1,minWidth:0,gap:1}},
-            h('span',{style:{fontSize:13,color:'var(--core-color-text-primary)',overflow:'hidden',textOverflow:'ellipsis'}},'Dana Melas'),
-            h('span',{style:{fontSize:11,fontWeight:400,color:'var(--core-color-text-muted)',overflow:'hidden',textOverflow:'ellipsis'}},'Mercury · Onboarding')),
-          h('span',{style:{display:'grid',placeItems:'center',width:16,height:16,color:'var(--core-color-text-muted)',flexShrink:0}}, this.navIcon('chevronsUpDown',14)))));
+        (function(self){
+          const h=React.createElement;
+          const segRow=(label,control)=> h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,minHeight:40,padding:'4px 12px',fontSize:13,color:'var(--core-color-text-primary)'}},
+            h('span',null,label), control);
+          return h(Menu,{open:!!self.state.userMenu,onOpenChange:(o)=>self.setState({userMenu:o})},
+            h(MenuTrigger,{asChild:true},
+              h('button',{className:'app-nav-item',style:{minHeight:44}},
+                h(Avatar,{name:'Dana Melas',size:'sm',alt:''}),
+                h('span',{style:{display:'flex',flexDirection:'column',lineHeight:1.3,flex:1,minWidth:0,gap:1}},
+                  h('span',{style:{fontSize:13,color:'var(--core-color-text-primary)',overflow:'hidden',textOverflow:'ellipsis'}},'Dana Melas'),
+                  h('span',{style:{fontSize:11,fontWeight:400,color:'var(--core-color-text-muted)',overflow:'hidden',textOverflow:'ellipsis'}},self.state.envMode==='sandbox'?'Sandbox':'Live')),
+                h('span',{style:{display:'grid',placeItems:'center',width:16,height:16,color:'var(--core-color-text-muted)',flexShrink:0}}, self.navIcon('chevronsUpDown',14)))),
+            h(MenuContent,{side:'top',align:'start',sideOffset:8,themeMode:self.state.theme==='dark'?'dark':'light',style:{width:300}},
+              // identity header — name + email, settings cog to the right
+              h('div',{style:{display:'flex',alignItems:'center',gap:10,padding:'10px 12px'}},
+                h('div',{style:{flex:1,minWidth:0}},
+                  h('div',{style:{fontSize:13.5,fontWeight:600,color:'var(--core-color-text-primary)'}},'Dana Melas'),
+                  h('div',{style:{fontSize:12,marginTop:2,color:'var(--core-color-text-muted)',overflow:'hidden',textOverflow:'ellipsis'}},'dana.melas@middesk.com')),
+                h(IconActionButton,{variant:'quiet','aria-label':'Profile & settings',title:'Profile & settings',onClick:()=>self.setState({userMenu:false})}, self.navIcon('settings',15))),
+              h(MenuSeparator),
+              segRow('Theme', h(SegmentedControl,{size:'sm',value:self.state.theme==='dark'?'dark':'light',onValueChange:(v)=>self.setUI({theme:v})},
+                h(SegmentedControlItem,{value:'light','aria-label':'Light theme',icon:self.navIcon('sun',13)}),
+                h(SegmentedControlItem,{value:'dark','aria-label':'Dark theme',icon:self.navIcon('moon',13)}))),
+              segRow('Environment', h(SegmentedControl,{size:'sm',value:self.state.envMode==='sandbox'?'sandbox':'live',onValueChange:(v)=>self.setUI({envMode:v})},
+                h(SegmentedControlItem,{value:'live'},'Live'),
+                h(SegmentedControlItem,{value:'sandbox'},'Sandbox'))),
+              h(MenuSeparator),
+              h(MenuItem,{style:{justifyContent:'space-between',minHeight:40,padding:'8px 12px',fontSize:13}},'Log out',
+                h('span',{style:{display:'inline-flex',alignItems:'center',color:'var(--core-color-text-muted)'}},self.navIcon('logout',15)))));
+        })(this)));
   }
   Topbar(){
     const h=React.createElement; const self=this; const {view,direction}=this.state;
-    const isIntel = view==='intelligence'; const isList = view==='list';
-    const label = isIntel ? 'Intelligence' : (direction==='B' ? 'Network' : 'Identity');
-    const crumb=(t,onClick,active)=>h(onClick?'button':'span',{onClick:onClick||null,style:{border:0,background:'none',padding:0,fontFamily:'inherit',cursor:onClick?'pointer':'default',fontSize:12,fontWeight:active?600:400,color:active?'var(--core-color-text-primary)':'var(--core-color-text-muted)'}},t);
-    return h('header',{style:{position:'sticky',top:0,zIndex:5,background:'color-mix(in srgb, var(--core-color-surface-canvas) 88%, transparent)',backdropFilter:'blur(8px)',WebkitBackdropFilter:'blur(8px)',borderBottom:'1px solid var(--core-color-border-default)',padding:'13px 28px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:20}},
-      isIntel
-        ? h('div',{style:{display:'flex',alignItems:'center',gap:8,fontSize:12,color:'var(--core-color-text-muted)'}},
-            h('span',null,'Workspace'), h('span',{style:{opacity:.4}},'/'), h('span',{style:{color:'var(--core-color-text-primary)',fontWeight:600}},'Intelligence'))
-        : isList
-        ? h('div',{style:{display:'flex',alignItems:'center',gap:8}}, crumb('Identities',null,true))
-        : h('div',{style:{display:'flex',alignItems:'center',gap:8}},
-            crumb('Identities',()=>self.setS({view:'list'})), h('span',{style:{opacity:.4,fontSize:12,color:'var(--core-color-text-muted)'}},'/'),
-            crumb(self.nameOf,null,true), h('span',{style:{opacity:.4,fontSize:12,color:'var(--core-color-text-muted)'}},'/'),
-            crumb(label,null,true)),
-      (isIntel||isList) ? null : (function(){ var s=self.policyStats?self.policyStats():{flag:0,review:0}; var rec = s.flag? {t:'Manual review',tone:'elev'} : s.review? {t:'Review recommended',tone:'watch'} : {t:'Clear to approve',tone:'clear'}; return h('div',{style:{display:'flex',alignItems:'center',gap:14}},
-        self.mono('Updated Jul 1, 2026',{color:'var(--core-color-text-disabled)'}),
-        self.pill(rec.t, rec.tone)); })());
+    const isIntel = view==='intelligence'; const isList = view==='list'; const isIdent = view==='identity';
+    const openTabs = this.state.openTabs||[]; const chats = this.state.chats||[];
+    const tab=(k,label,active,onClick,onClose)=> h('div',{key:k,onClick,style:{display:'inline-flex',alignItems:'center',gap:6,padding:'5px 10px',minHeight:28,borderRadius:8,cursor:'pointer',fontSize:12.5,fontWeight:active?600:400,whiteSpace:'nowrap',color:active?'var(--core-color-text-primary)':'var(--core-color-text-muted)',background:active?'var(--core-color-state-selected-bg)':'transparent',border:'1px solid '+(active?'var(--core-color-border-default)':'transparent'),flexShrink:0}},
+      h('span',{style:{maxWidth:160,overflow:'hidden',textOverflow:'ellipsis'}},label),
+      onClose ? h('span',{onClick:(e)=>{e.stopPropagation(); onClose();},'aria-label':'Close '+label,style:{display:'grid',placeItems:'center',width:14,height:14,borderRadius:4,fontSize:12,lineHeight:1,color:'var(--core-color-text-muted)'}},'×') : null);
+    // root dropdown — switch between the two workspaces (Intelligence / Identities)
+    const rootLabel = isIntel ? 'Intelligence' : 'Identities';
+    const rootActive = isList || (isIntel && !this.state.activeChat);
+    const rootDrop = h(Menu,{open:!!this.state.rootMenu,onOpenChange:(o)=>this.setState({rootMenu:o})},
+      h(MenuTrigger,{asChild:true},
+        h('button',{style:{display:'inline-flex',alignItems:'center',gap:6,padding:'5px 10px',minHeight:28,borderRadius:8,cursor:'pointer',fontFamily:'inherit',fontSize:12.5,fontWeight:rootActive?600:400,whiteSpace:'nowrap',color:rootActive?'var(--core-color-text-primary)':'var(--core-color-text-muted)',background:rootActive?'var(--core-color-state-selected-bg)':'transparent',border:'1px solid '+(rootActive?'var(--core-color-border-default)':'transparent'),flexShrink:0}},
+          h('span',null,rootLabel),
+          h('span',{style:{display:'grid',placeItems:'center',width:14,height:14,transform:'rotate(180deg)',color:'var(--core-color-text-muted)'}}, this.navIcon('chevronUp')))),
+      h(MenuContent,{align:'start',themeMode:this.state.theme==='dark'?'dark':'light',style:{minWidth:170}},
+        h(MenuItem,{onSelect:()=>self.newChat()},'Intelligence'),
+        h(MenuItem,{onSelect:()=>self.setS({view:'list'})},'Identities')));
+    const navToggle = this.state.navDrawer ? null : h(IconActionButton,{variant:'quiet','aria-label':'Show navigation',title:'Show navigation',onClick:()=>this.setState({navDrawer:true}),style:{flexShrink:0,marginRight:10}},
+      this.navIcon('panelLeft'));
+    return h('header',{style:{position:'sticky',top:0,zIndex:5,background:'color-mix(in srgb, var(--core-color-surface-canvas) 88%, transparent)',backdropFilter:'blur(8px)',WebkitBackdropFilter:'blur(8px)',borderBottom:'1px solid var(--core-color-border-default)',padding:'9px 28px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:20}},
+      h('div',{style:{display:'flex',alignItems:'center',gap:4,minWidth:0,flex:1}},
+        navToggle,
+        this.state.navDrawer ? null : rootDrop,
+        h('div',{style:{display:'flex',alignItems:'center',gap:4,minWidth:0,overflowX:'auto'}},
+          ...openTabs.map(id=> tab('id-'+id, self.PROFILES[id].name, isIdent&&self.activeId===id, ()=>self.openIdentity(id), ()=>self.closeTab(id))),
+          ...chats.map(c=> tab(c.id, c.title, isIntel&&self.state.activeChat===c.id, ()=>{ self.setState({activeChat:c.id}); self.setS({view:'intelligence'}); }, ()=>self.closeChat(c.id))))),
+      h('div',{style:{display:'flex',alignItems:'center',gap:14,flexShrink:0}},
+        isIntel && this.state.activeChat
+          ? h(ActionButton,{variant:'quiet',onClick:()=>self.newChat(),style:{flexShrink:0}},
+              h('span',{style:{fontSize:14,lineHeight:1}},'+'),'Ask something else')
+          : null));
   }
 
   /* ---------- shared hero ---------- */
@@ -453,7 +550,7 @@ export default class App extends React.Component {
         h('h1',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:'var(--core-font-size-display-lg)',letterSpacing:'-.02em',lineHeight:1.2,margin:'6px 0 4px',color:'var(--core-color-text-primary)'}},'Vela Logistics, Inc.'),
         h('p',{style:{margin:0,color:'var(--core-color-text-secondary)',fontSize:13.5}},'California · Formed Mar 12, 2019 · ~210 employees · Trucking & logistics'),
         h('div',{style:{display:'flex',flexWrap:'wrap',gap:'16px 32px',marginTop:22,maxWidth:560}},
-          ...this.facts.map(([k,v])=> h('div',{key:k,style:{display:'flex',flexDirection:'column',gap:3}}, this.mono(k,{fontSize:10,color:'var(--core-color-text-muted)'}), h('span',{style:{fontSize:13,color:'var(--core-color-text-primary)',fontFamily:k==='TIN'?'var(--app-font-mono)':'inherit'}},v))))),
+          ...this.facts.map(([k,v])=> h('div',{key:k,style:{display:'flex',flexDirection:'column',gap:3}}, this.mono(k,{fontSize:10,color:'var(--core-color-text-muted)'}), h('span',{style:{fontSize:13,color:'var(--core-color-text-primary)',fontFamily:'inherit'}},v))))),
       h('div',{style:{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:10,flexShrink:0}},
         this.pill('Active','clear'),
         h('div',{style:{textAlign:'right',marginTop:6}}, this.mono('Network risk',{fontSize:10,color:'var(--core-color-text-muted)'}), h('div',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:'var(--core-font-size-display-md)',lineHeight:1.1,color:'var(--risk-elev)',marginTop:4}},'Elevated')),
@@ -473,15 +570,15 @@ export default class App extends React.Component {
         h('div',{style:{position:'relative',zIndex:1,width:sel?14:10,height:sel?14:10,borderRadius:'50%',marginTop:5,background:sel?c:'var(--core-color-surface-card)',border:'2px solid '+c,transition:'all .2s var(--core-ease-standard)'}})),
       h('div',{style:{paddingBottom:14}},
         h('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
-          this.mono(v.date), this.pill(v.weight,wt,{fontSize:9})),
+          this.mono(v.date), this.pill(v.weight,wt)),
         h('div',{style:{fontSize:15,marginTop:5,fontWeight:sel?500:400}},v.title),
         sel?h('div',{style:{marginTop:10,animation:'mdFade .25s var(--core-ease-standard)'}},
           h('p',{style:{margin:'0 0 12px',fontSize:13,lineHeight:1.5,color:'var(--core-color-text-secondary)',maxWidth:560}},v.detail),
           h('div',{style:{display:'flex',flexDirection:'column',gap:7,marginBottom:v.matters?12:0}},
             ...v.changes.map((ch,j)=> h('div',{key:j,style:{display:'flex',alignItems:'center',gap:10,fontSize:12.5}},
-              h('span',{style:{minWidth:140,color:'var(--core-color-text-muted)',fontFamily:'var(--app-font-mono)',fontSize:10,letterSpacing:'.04em',textTransform:'uppercase'}},ch[0]),
-              h('span',{style:{color:'var(--core-color-text-disabled)',textDecoration:ch[1]==='—'?'none':'line-through'}},ch[1]),
-              h('span',{style:{color:'var(--core-color-text-disabled)'}},'→'),
+              h('span',{style:{minWidth:140,color:'var(--core-color-text-muted)',fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.04em',textTransform:'uppercase'}},ch[0]),
+              h('span',{style:{color:'var(--core-color-text-muted)',textDecoration:ch[1]==='None'?'none':'line-through'}},ch[1]),
+              h('span',{style:{color:'var(--core-color-text-muted)'}},'→'),
               h('span',{style:{color:'var(--core-color-text-primary)',fontWeight:500}},ch[2])))),
           v.matters?h('div',{style:{display:'flex',gap:9,alignItems:'flex-start',padding:'10px 12px',borderRadius:10,background:'color-mix(in srgb, '+c+' 8%, var(--core-color-surface-card))',border:'1px solid color-mix(in srgb, '+c+' 20%, var(--core-color-surface-card))'}},
             h('span',{style:{width:6,height:6,borderRadius:'50%',background:c,marginTop:6,flexShrink:0}}),
@@ -504,7 +601,7 @@ export default class App extends React.Component {
   qEffective(q){
     if(this.activeId!=='vela'){ const ov=this.answers[q.t]; if(ov) return Object.assign({}, q, ov);
       if(q.tone==='na'||q.tone==='data') return q;
-      return Object.assign({}, q, {a:'Verified', tone:'clear', insight:'Verified against authoritative sources — no exceptions for '+this.nameOf+'.'}); }
+      return Object.assign({}, q, {a:'Verified', tone:'clear', insight:'Verified against authoritative sources. No exceptions for '+this.nameOf+'.'}); }
     return this.isLive ? q : this.qEffectiveAt(q, this.asOfMs); }
   riskAt(idx){ const P=this.state.policy||[];
     if(this.activeId!=='vela'){ let flag=false,review=false; P.forEach(s=>s.q.forEach(q=>{const st=this.statusOf(this.qEffective(q).tone); if(st==='flag')flag=true; else if(st==='review')review=true;})); return flag?'elev':review?'watch':'clear'; }
@@ -515,9 +612,9 @@ export default class App extends React.Component {
   policyAttention(){ const P=this.state.policy||[]; const out=[]; P.forEach(sec=>sec.q.forEach((q,i)=>{const st=this.statusOf(this.qEffective(q).tone); if(st==='review'||st==='flag') out.push({sec,q:this.qEffective(q),i,st});})); return out.sort((a,b)=> (a.st==='flag'?0:1)-(b.st==='flag'?0:1)); }
 
   ansPill(q){ const h=React.createElement;
-    if(q.tone==='data') return h('span',{style:{display:'inline-flex',alignItems:'center',padding:'4px 10px',borderRadius:'var(--core-radius-pill)',background:'var(--core-color-surface-canvas)',color:'var(--core-color-text-primary)',border:'1px solid var(--core-color-border-default)',fontSize:11.5,fontWeight:500,whiteSpace:'nowrap'}},q.a);
-    if(q.tone==='na') return h('span',{style:{display:'inline-flex',alignItems:'center',padding:'4px 10px',borderRadius:'var(--core-radius-pill)',background:'transparent',color:'var(--core-color-text-disabled)',border:'1px dashed var(--core-color-border-default)',fontSize:11,whiteSpace:'nowrap'}},q.a);
-    return this.pill(q.a,q.tone); }
+    if(q.tone==='data') return this.coreBadge(q.a,'status','neutral',null,'compact');
+    if(q.tone==='na') return this.coreBadge(q.a,'status','neutral',{background:'transparent',borderStyle:'dashed',color:'var(--core-color-text-muted)'},'compact');
+    return this.coreBadge(q.a,'status',this.STATUS_TONE(this.statusOf(q.tone)),null,'compact'); }
   pTone(t){ return (t==='data'||t==='na')?'mute':t; }
   qVersionThread(q,bare){ const h=React.createElement; const hist=q.history; if(!hist||!hist.length) return null;
     const latest=q.asOf||this.versions[this.versions.length-1].date;
@@ -527,26 +624,26 @@ export default class App extends React.Component {
     return h('div',{style:bare?null:{borderTop:'1px dashed var(--core-color-border-default)',paddingTop:12,marginTop:2}},
       bare?null:h('div',{style:{display:'flex',alignItems:'center',gap:9,marginBottom:11}},
         this.mono('Answer history',{color:'var(--core-color-text-muted)'}),
-        this.pill((hist.length+1)+' versions','mute',{fontSize:9})),
+        this.pill((hist.length+1)+' versions','mute')),
       h('div',{style:{display:'flex',flexDirection:'column'}}, ...rows.map((r,i)=>{ const rc=this.STAT[this.statusOf(r.tone)].c; const lastr=i===rows.length-1; const active=r.date===activeDate;
         return h('div',{key:i,style:{display:'grid',gridTemplateColumns:'14px 1fr',gap:11,opacity:active?1:.62}},
           h('div',{style:{display:'flex',flexDirection:'column',alignItems:'center'}},
             h('span',{style:{width:9,height:9,borderRadius:'50%',marginTop:4,background:active?rc:'var(--core-color-surface-card)',border:'2px solid '+rc,flexShrink:0}}),
             lastr?null:h('div',{style:{flex:1,width:1,background:'var(--core-color-border-default)',marginTop:4}})),
           h('div',{style:{paddingBottom:lastr?0:13}},
-            h('div',{style:{display:'flex',alignItems:'center',gap:9,flexWrap:'wrap'}}, this.mono(r.date), active?this.mono(this.isLive?'Current':'Viewing',{color:rc}):null, this.pill(r.a,this.pTone(r.tone),{fontSize:9})),
+            h('div',{style:{display:'flex',alignItems:'center',gap:9,flexWrap:'wrap'}}, this.mono(r.date), active?this.mono(this.isLive?'Current':'Viewing',{color:rc}):null, this.coreBadge(r.a,'status',this.STATUS_TONE(this.statusOf(r.tone)))),
             h('div',{style:{fontSize:12,lineHeight:1.45,color:'var(--core-color-text-secondary)',marginTop:5}}, r.insight))); })));
   }
 
   qRow(sec,q,i,last){ const h=React.createElement; const eff=this.qEffective(q); const st=this.statusOf(eff.tone); const sc=this.STAT[st].c;
     const key=sec.id+':'+i; const open=this.state.openQ===key; const force=st==='flag'||st==='review';
     const show=open||force;
-    return h('div',{key:i,style:{borderBottom:last?'none':'1px solid var(--core-color-border-default)',borderLeft:'2px solid '+(force?sc:'transparent'),paddingLeft:force?12:14}},
+    return h('div',{key:i,style:{borderBottom:last?'none':'1px solid var(--core-color-border-default)',paddingLeft:14}},
       h('div',{onClick:()=>this.setState({openQ:open?null:key}),style:{display:'flex',alignItems:'center',gap:14,padding:'12px 16px 12px 0',cursor:'pointer'}},
         h('span',{style:{flex:1,fontSize:13,color:'var(--core-color-text-secondary)',lineHeight:1.4}},q.t),
-        q.history?h('span',{title:'Answer changed over time',style:{display:'inline-flex',alignItems:'center',gap:4,fontFamily:'var(--app-font-mono)',fontSize:8.5,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-disabled)'}},'↻ '+(q.history.length+1)):null,
+        q.history?h('span',{title:'Answer changed over time',style:{display:'inline-flex',alignItems:'center',gap:4,fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-muted)'}},'↻ '+(q.history.length+1)):null,
         this.ansPill(eff),
-        h('span',{style:{color:'var(--core-color-text-disabled)',fontSize:11,width:12,textAlign:'center',transform:open?'rotate(180deg)':'none',transition:'transform .2s'}},'⌄')),
+        h('span',{style:{color:'var(--core-color-text-muted)',fontSize:11,width:12,textAlign:'center',transform:open?'rotate(180deg)':'none',transition:'transform .2s'}},'⌄')),
       show?this.qDetail(sec,q,key,eff,sc,force):null);
   }
 
@@ -575,19 +672,19 @@ export default class App extends React.Component {
             h('div',{style:{fontSize:13,fontWeight:600,color:'var(--core-color-text-primary)'}},r.name),
             h('div',{style:{fontSize:11.5,color:'var(--core-color-text-muted)',marginTop:2}},r.rel+' · '+r.reg))),
         h('div',{style:{display:'flex',alignItems:'center',gap:6,flexShrink:0}},
-          nMat?this.pill(nMat+' flag'+(nMat===1?'':'s'),'high',{fontSize:9}):null,
-          nNeu?this.pill(nNeu+' neutral','mute',{fontSize:9}):null,
-          r.flags.length?null:this.pill('No flags','clear',{fontSize:9}))),
+          nMat?this.pill(nMat+' flag'+(nMat===1?'':'s'),'high'):null,
+          nNeu?this.pill(nNeu+' neutral','mute'):null,
+          r.flags.length?null:this.pill('No flags','clear'))),
       r.flags.length?h('div',{style:{display:'flex',flexDirection:'column',gap:6,marginTop:9}}, ...r.flags.map((f,j)=>
         h('div',{key:j,style:{display:'flex',alignItems:'flex-start',gap:8}},
           h('div',{style:{flex:1,minWidth:0}},
             h('div',{style:{fontSize:12,fontWeight:500,color:f.kind==='material'?'var(--core-color-text-primary)':'var(--core-color-text-muted)'}},f.label),
             h('div',{style:{fontSize:11,color:'var(--core-color-text-muted)',lineHeight:1.45,marginTop:1}},f.note)),
-          this.pill(f.kind==='material'?'Flag':'Neutral', f.kind==='material'?'high':'mute',{fontSize:9})))):null); };
+          this.pill(f.kind==='material'?'Flag':'Neutral', f.kind==='material'?'high':'mute')))):null); };
     const stat=(n,label,col)=>h('div',{style:{flex:1}}, h('div',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:26,lineHeight:1,color:col}},n), h('div',{style:{fontSize:10.5,color:'var(--core-color-text-muted)',marginTop:4,lineHeight:1.3}},label));
     return h('div',{style:{border:'1px solid var(--core-color-border-default)',borderRadius:'var(--core-radius-card)',background:'var(--core-color-surface-card)',alignSelf:'stretch',overflow:'hidden'}},
-      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'12px 14px',borderBottom:'1px solid var(--core-color-border-default)',background:'var(--core-color-surface-inset)'}}, this.mono('Adverse status',{color:'var(--core-color-text-muted)'}), h('span',{style:{fontSize:11,color:'var(--core-color-text-muted)'}}, h('span',{style:{fontFamily:'var(--app-font-mono)',fontSize:8.5,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-disabled)',marginRight:6}},'Applied in'), v.jurisdiction)),
-      v.rows.length?h('div',{style:{display:'flex',gap:14,padding:'13px 14px',borderBottom:'1px solid var(--core-color-border-default)'}}, stat(mat,'Material flags','var(--risk-high)'), stat(neutralOnly,'Neutral lifecycle only','var(--core-color-text-disabled)'), stat(clean,'No flags','var(--core-color-text-primary)')):null,
+      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'12px 14px',borderBottom:'1px solid var(--core-color-border-default)',background:'var(--core-color-surface-inset)'}}, this.mono('Adverse status',{color:'var(--core-color-text-muted)'}), h('span',{style:{fontSize:11,color:'var(--core-color-text-muted)'}}, h('span',{style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-muted)',marginRight:6}},'Applied in'), v.jurisdiction)),
+      v.rows.length?h('div',{style:{display:'flex',gap:14,padding:'13px 14px',borderBottom:'1px solid var(--core-color-border-default)'}}, stat(mat,'Material flags','var(--risk-high)'), stat(neutralOnly,'Neutral lifecycle only','var(--core-color-text-muted)'), stat(clean,'No flags','var(--core-color-text-primary)')):null,
       v.rows.length?h('div',null, ...v.rows.map(row)):h('div',{style:{padding:'18px 14px',fontSize:12,color:'var(--core-color-text-muted)'}},'No connected entities to screen at this point in time.'));
   }
   mediaViz(v,sc,force){ const h=React.createElement;
@@ -598,18 +695,18 @@ export default class App extends React.Component {
       out[out.length-1]=out[out.length-1]+'”'; return out; };
     const item=(m,i)=>h('a',{key:i,href:m.url,target:'_blank',rel:'noopener',style:{display:'block',textDecoration:'none',padding:'13px 14px',borderTop:i===0?'none':'1px solid var(--core-color-border-default)'}},
       h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:6}},
-        h('span',{style:{fontFamily:'var(--app-font-mono)',fontSize:9,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-primary)',fontWeight:600}},m.outlet),
-        h('span',{style:{fontFamily:'var(--app-font-mono)',fontSize:9,letterSpacing:'.04em',color:'var(--core-color-text-disabled)'}},m.date),
-        h('span',{style:{marginLeft:'auto'}}), this.pill(RES[m.resolution].lab, RES[m.resolution].tone,{fontSize:9})),
+        h('span',{style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-primary)',fontWeight:600}},m.outlet),
+        h('span',{style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.04em',color:'var(--core-color-text-muted)'}},m.date),
+        h('span',{style:{marginLeft:'auto'}}), this.pill(RES[m.resolution].lab, RES[m.resolution].tone)),
       h('div',{style:{display:'flex',gap:9,alignItems:'flex-start'}},
         h('div',{style:{flex:1,minWidth:0}},
-          h('div',{style:{fontSize:13,fontWeight:600,color:'var(--core-color-text-primary)',lineHeight:1.35,marginBottom:5}}, m.title, h('span',{style:{color:'var(--core-color-text-disabled)',marginLeft:6,fontSize:11,fontWeight:400}},'↗')),
+          h('div',{style:{fontSize:13,fontWeight:600,color:'var(--core-color-text-primary)',lineHeight:1.35,marginBottom:5}}, m.title, h('span',{style:{color:'var(--core-color-text-muted)',marginLeft:6,fontSize:11,fontWeight:400}},'↗')),
           h('div',{style:{fontSize:12,lineHeight:1.5,color:'var(--core-color-text-secondary)',fontStyle:'italic',paddingLeft:9,borderLeft:'2px solid var(--core-color-border-default)'}}, ...quoteEl(m)),
-          m.match?h('div',{style:{display:'flex',alignItems:'center',gap:6,marginTop:8,fontSize:11,color:'var(--core-color-text-muted)'}}, h('span',{style:{fontFamily:'var(--app-font-mono)',fontSize:8.5,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-disabled)'}},'Linked via'), h('span',{style:{width:8,height:8,borderRadius:'50%',background:'var(--risk-high)',flexShrink:0}}), h('span',{style:{fontWeight:600,color:'var(--core-color-text-primary)'}},m.match), m.matchType?h('span',{style:{color:'var(--core-color-text-disabled)'}},'· '+m.matchType):null):null,
+          m.match?h('div',{style:{display:'flex',alignItems:'center',gap:6,marginTop:8,fontSize:11,color:'var(--core-color-text-muted)'}}, h('span',{style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-muted)'}},'Linked via'), h('span',{style:{width:8,height:8,borderRadius:'50%',background:'var(--risk-high)',flexShrink:0}}), h('span',{style:{fontWeight:600,color:'var(--core-color-text-primary)'}},m.match), m.matchType?h('span',{style:{color:'var(--core-color-text-muted)'}},'· '+m.matchType):null):null,
           h('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginTop:9,alignItems:'center'}},
-            ...m.risks.map(r=>h('span',{key:r,style:{fontFamily:'var(--app-font-mono)',fontSize:8.5,letterSpacing:'.03em',textTransform:'uppercase',color:'var(--core-color-text-muted)',background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',padding:'2px 7px',borderRadius:5}},r)),
-            h('span',{style:{fontFamily:'var(--app-font-mono)',fontSize:8.5,letterSpacing:'.03em',textTransform:'uppercase',color:'var(--risk-high)'}},'● '+m.sentiment),
-            h('span',{style:{marginLeft:'auto',fontFamily:'var(--app-font-mono)',fontSize:8.5,letterSpacing:'.03em',textTransform:'uppercase',color:'var(--core-color-text-disabled)'}},'Match '+m.score)))));
+            ...m.risks.map(r=>h('span',{key:r,style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.03em',textTransform:'uppercase',color:'var(--core-color-text-muted)',background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',padding:'2px 7px',borderRadius:5}},r)),
+            h('span',{style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.03em',textTransform:'uppercase',color:'var(--risk-high)'}},'● '+m.sentiment),
+            h('span',{style:{marginLeft:'auto',fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.03em',textTransform:'uppercase',color:'var(--core-color-text-muted)'}},'Match '+m.score)))));
     return h('div',{style:{border:'1px solid var(--core-color-border-default)',borderRadius:'var(--core-radius-card)',background:'var(--core-color-surface-card)',alignSelf:'stretch',overflow:'hidden'}},
       h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'12px 14px',borderBottom:'1px solid var(--core-color-border-default)',background:'var(--core-color-surface-inset)'}}, this.mono('Adverse media',{color:'var(--core-color-text-muted)'}), h('span',{style:{fontSize:11,color:'var(--core-color-text-muted)'}}, v.items.length+' article'+(v.items.length===1?'':'s')+' shown')),
       ...v.items.map(item));
@@ -619,15 +716,15 @@ export default class App extends React.Component {
     const stripe='repeating-linear-gradient(45deg,var(--core-color-surface-sunken),var(--core-color-surface-sunken) 5px,var(--core-color-surface-card) 5px,var(--core-color-surface-card) 10px)';
     const bar=h('div',{style:{display:'flex',height:26,borderRadius:7,overflow:'hidden',border:'1px solid var(--core-color-border-default)'}}, ...v.bands.map((b,i)=>
       h('div',{key:i,title:b.label+' · '+b.count,style:{flex:b.count,background:b.status==='fp'?stripe:COL[b.status],display:'flex',alignItems:'center',justifyContent:'center',borderRight:i<v.bands.length-1?'1px solid var(--core-color-surface-card)':'none'}},
-        h('span',{style:{fontFamily:'var(--app-font-mono)',fontSize:9.5,fontWeight:600,color:b.status==='fp'?'var(--core-color-text-muted)':'var(--core-color-text-inverse)'}},b.count))));
+        h('span',{style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,fontWeight:600,color:b.status==='fp'?'var(--core-color-text-muted)':'var(--core-color-text-inverse)'}},b.count))));
     const row=(b,i)=>h('div',{key:i,style:{display:'flex',alignItems:'flex-start',gap:12,padding:'11px 0',borderTop:i===0?'none':'1px solid var(--core-color-border-default)'}},
       h('span',{style:{width:9,height:9,borderRadius:'50%',flexShrink:0,marginTop:5,background:b.status==='fp'?'var(--core-color-border-default)':COL[b.status]}}),
       h('div',{style:{flex:1,minWidth:0}},
-        h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, h('span',{style:{fontSize:13,fontWeight:600,color:b.status==='fp'?'var(--core-color-text-muted)':'var(--core-color-text-primary)'}},b.label), b.band?h('span',{style:{fontFamily:'var(--app-font-mono)',fontSize:8.5,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-disabled)',background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',padding:'2px 6px',borderRadius:5}},'Score '+b.band):null),
+        h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, h('span',{style:{fontSize:13,fontWeight:600,color:b.status==='fp'?'var(--core-color-text-muted)':'var(--core-color-text-primary)'}},b.label), b.band?h('span',{style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-muted)',background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',padding:'2px 6px',borderRadius:5}},'Score '+b.band):null),
         h('div',{style:{fontSize:11.5,color:'var(--core-color-text-muted)',marginTop:2,lineHeight:1.45}},b.note)),
-      h('div',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:27,color:b.status==='fp'?'var(--core-color-text-disabled)':'var(--core-color-text-primary)',lineHeight:1}},b.count));
+      h('div',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:27,color:b.status==='fp'?'var(--core-color-text-muted)':'var(--core-color-text-primary)',lineHeight:1}},b.count));
     return h('div',{style:{border:'1px solid var(--core-color-border-default)',borderRadius:'var(--core-radius-card)',background:'var(--core-color-surface-card)',padding:'14px 16px',alignSelf:'stretch'}},
-      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginBottom:11}}, this.mono('Match resolution',{color:'var(--core-color-text-muted)'}), h('span',{style:{fontSize:11,color:'var(--core-color-text-muted)'}}, h('span',{style:{fontFamily:'var(--app-font-mono)',fontSize:8.5,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-disabled)',marginRight:6}},'Screened'), v.total+' candidates')),
+      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginBottom:11}}, this.mono('Match resolution',{color:'var(--core-color-text-muted)'}), h('span',{style:{fontSize:11,color:'var(--core-color-text-muted)'}}, h('span',{style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-muted)',marginRight:6}},'Screened'), v.total+' candidates')),
       bar,
       h('div',{style:{marginTop:6}}, ...v.bands.map(row)));
   }
@@ -637,18 +734,18 @@ export default class App extends React.Component {
     const segs=[...v.owners.map(o=>({pct:o.pct,status:o.status,name:o.name})), ...(v.gap?[{pct:v.gap.pct,status:'unaccounted',name:v.gap.label}]:[])];
     const bar=h('div',{style:{display:'flex',height:26,borderRadius:7,overflow:'hidden',border:'1px solid var(--core-color-border-default)'}}, ...segs.map((s,i)=>
       h('div',{key:i,title:s.name+' · '+s.pct+'%',style:{width:s.pct+'%',minWidth:s.pct<6?18:0,background:s.status==='unaccounted'?stripe:COL[s.status],display:'flex',alignItems:'center',justifyContent:'center',borderRight:i<segs.length-1?'1px solid var(--core-color-surface-card)':'none'}},
-        h('span',{style:{fontFamily:'var(--app-font-mono)',fontSize:9.5,fontWeight:600,color:s.status==='unaccounted'?'var(--core-color-text-muted)':'var(--core-color-text-inverse)'}}, s.pct>=9?s.pct+'%':''))));
+        h('span',{style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,fontWeight:600,color:s.status==='unaccounted'?'var(--core-color-text-muted)':'var(--core-color-text-inverse)'}}, s.pct>=9?s.pct+'%':''))));
     const ownerRow=(o,i,first)=>h('div',{key:'o'+i,style:{display:'flex',alignItems:'flex-start',gap:12,padding:'11px 10px',margin:'0 -10px',borderRadius:o.status==='undisclosed'?8:0,borderTop:first?'none':'1px solid var(--core-color-border-default)',background:o.status==='undisclosed'?'color-mix(in srgb, var(--risk-high) 7%, var(--core-color-surface-card))':'transparent'}},
-      h('div',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:27,color:o.status==='unaccounted'?'var(--core-color-text-disabled)':'var(--core-color-text-primary)',lineHeight:1,width:56,flexShrink:0}}, o.pct+'%'),
+      h('div',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:27,color:o.status==='unaccounted'?'var(--core-color-text-muted)':'var(--core-color-text-primary)',lineHeight:1,width:56,flexShrink:0}}, o.pct+'%'),
       h('div',{style:{flex:1,minWidth:0}},
         h('div',{style:{fontSize:13,fontWeight:600,color:o.status==='unaccounted'?'var(--core-color-text-muted)':'var(--core-color-text-primary)'}},o.name),
         h('div',{style:{fontSize:11.5,color:'var(--core-color-text-muted)',marginTop:2,lineHeight:1.45}}, (o.kind==='entity'?'Business entity':o.kind==='individual'?'Individual':'')+(o.kind&&o.note?' · ':'')+(o.note||''))),
       h('div',{style:{display:'flex',alignItems:'flex-start',justifyContent:'flex-end',gap:10,flexShrink:0}},
-        this.pill(o.status==='undisclosed'?'Undisclosed':o.status==='unaccounted'?'No owner named':'Disclosed', o.status==='undisclosed'?'high':o.status==='unaccounted'?'mute':'clear',{fontSize:9})));
+        this.pill(o.status==='undisclosed'?'Undisclosed':o.status==='unaccounted'?'No owner named':'Disclosed', o.status==='undisclosed'?'high':o.status==='unaccounted'?'mute':'clear')));
     const rows=v.owners.map((o,i)=>ownerRow(o,i,i===0));
     if(v.gap) rows.push(ownerRow({name:v.gap.label,pct:v.gap.pct,kind:'entity',status:'unaccounted',note:v.gap.note}, 'gap', false));
     return h('div',{style:{border:'1px solid var(--core-color-border-default)',borderRadius:'var(--core-radius-card)',background:'var(--core-color-surface-card)',padding:'14px 16px',alignSelf:'stretch'}},
-      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginBottom:11}}, this.mono('Beneficial ownership',{color:'var(--core-color-text-muted)'}), v.applicant?h('span',{style:{fontSize:11,color:'var(--core-color-text-muted)',textAlign:'right'}}, h('span',{style:{fontFamily:'var(--app-font-mono)',fontSize:8.5,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-disabled)',marginRight:6}},'On the application'), v.applicant):null),
+      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginBottom:11}}, this.mono('Beneficial ownership',{color:'var(--core-color-text-muted)'}), v.applicant?h('span',{style:{fontSize:11,color:'var(--core-color-text-muted)',textAlign:'right'}}, h('span',{style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-muted)',marginRight:6}},'On the application'), v.applicant):null),
       bar,
       h('div',{style:{marginTop:6}}, ...rows));
   }
@@ -657,29 +754,29 @@ export default class App extends React.Component {
     const hasHist=!!(q.history&&q.history.length);
     const ra=q.attrs||sec.relAttrs||[];
     const setTab=(v)=>this.setState({qTab:{...(this.state.qTab||{}),[key]:v}});
-    const seg=(label,val)=>h('button',{onClick:()=>setTab(val),style:{padding:'5px 10px',border:0,borderRadius:7,cursor:'pointer',fontFamily:'inherit',fontSize:11,background:tab===val?'var(--core-color-surface-card)':'transparent',color:tab===val?'var(--core-color-tab-fg-active)':'var(--core-color-text-muted)',boxShadow:tab===val?'var(--core-color-elevation-control)':'none',transition:'all .15s',whiteSpace:'nowrap'}},label);
+    // @core SegmentedControl (design-system/core/SegmentedControl.tsx)
+    const detailToggle=h(SegmentedControl,{size:'sm',value:tab,onValueChange:(v)=>{ if(v) setTab(v); },'aria-label':'Question detail view'},
+      h(SegmentedControlItem,{value:'attrs'},'Attributes'),
+      h(SegmentedControlItem,{value:'history',disabled:!hasHist}, hasHist?('History · '+(q.history.length+1)):'No history'));
     const insight=h('div',{style:{display:'flex',gap:9,alignItems:'flex-start',padding:'14px 16px'}},
       h('span',{style:{width:6,height:6,borderRadius:'50%',background:sc,marginTop:6,flexShrink:0}}),
       h('div',{style:{flex:1,minWidth:0}},
         this.mono('Insight',{color:'var(--core-color-text-muted)',display:'block',marginBottom:4}),
         h('div',{style:{fontSize:13,lineHeight:1.55,color:'var(--core-color-text-secondary)'}},eff.insight),
-        h('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginTop:10,alignItems:'center'}}, this.mono('Sources',{color:'var(--core-color-text-disabled)'}), ...(q.ev||[]).map(e=>h('span',{key:e,style:{fontFamily:'var(--app-font-mono)',fontSize:9,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-muted)',background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',padding:'3px 7px',borderRadius:6}},e)))));
+        h('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginTop:10,alignItems:'center'}}, this.mono('Sources',{color:'var(--core-color-text-muted)'}), ...(q.ev||[]).map(e=>h('span',{key:e,style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-muted)',background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',padding:'3px 7px',borderRadius:6}},e)))));
     const attrsView=ra.length?h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(min(210px, 100%), 1fr))',gap:7}}, ...ra.map((a,j)=>
       h('div',{key:j,style:{display:'flex',flexDirection:'column',gap:3,padding:'7px 11px',borderRadius:8,background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',minWidth:0,gridColumn:(ra.length%2===1&&j===ra.length-1)?'1 / -1':'auto'}},
         h('div',{style:{display:'flex',flexDirection:'column',gap:2}},
-          h('span',{style:{fontFamily:'var(--app-font-mono)',fontSize:8.5,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-muted)'}},a.k),
+          h('span',{style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-muted)'}},a.k),
           h('span',{style:{fontSize:12,color:'var(--core-color-text-primary)',fontWeight:500}},a.v)),
-        h('div',{style:{display:'flex',flexWrap:'wrap',gap:'3px 8px'}}, ...[].concat(a.s||this.attrSource(a.k)).map((src,si)=>h('span',{key:si,style:{display:'inline-flex',alignItems:'center',gap:4,fontFamily:'var(--app-font-mono)',fontSize:8,letterSpacing:'.03em',textTransform:'uppercase',color:'var(--core-color-text-disabled)'}}, h('span',{style:{width:4,height:4,borderRadius:'50%',background:'var(--core-color-border-default)'}}), src))))))
+        h('div',{style:{display:'flex',flexWrap:'wrap',gap:'3px 8px'}}, ...[].concat(a.s||this.attrSource(a.k)).map((src,si)=>h('span',{key:si,style:{display:'inline-flex',alignItems:'center',gap:4,fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.03em',textTransform:'uppercase',color:'var(--core-color-text-muted)'}}, h('span',{style:{width:4,height:4,borderRadius:'50%',background:'var(--core-color-border-default)'}}), src))))))
       :h('div',{style:{fontSize:12,color:'var(--core-color-text-muted)',lineHeight:1.5}},'No specific data attributes recorded for this question.');
     const detailBody=(tab==='history'&&hasHist)?this.qVersionThread(q,true):attrsView;
-    const histSeg=hasHist
-      ? seg('History · '+(q.history.length+1),'history')
-      : h('span',{style:{padding:'5px 10px',borderRadius:7,fontFamily:'inherit',fontSize:11,color:'var(--core-color-text-disabled)',whiteSpace:'nowrap',cursor:'default'}},'No history');
     const card=h('div',{style:{border:'1px solid var(--core-color-border-default)',borderRadius:'var(--core-radius-card)',overflow:'hidden',background:'var(--core-color-surface-card)'}},
       insight,
       h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,rowGap:6,flexWrap:'wrap',padding:'9px 14px',borderTop:'1px solid var(--core-color-border-default)',background:'var(--core-color-surface-inset)'}},
-        h('div',{style:{display:'inline-flex',background:'var(--core-color-surface-canvas)',border:'1px solid var(--core-color-border-default)',borderRadius:9,padding:3,gap:2}}, seg('Attributes','attrs'), histSeg),
-        this.mono((tab==='history'&&hasHist)?'Answer over time':(ra.length+' attribute'+(ra.length===1?'':'s')),{color:'var(--core-color-text-disabled)'})),
+        detailToggle,
+        this.mono((tab==='history'&&hasHist)?'Answer over time':(ra.length+' attribute'+(ra.length===1?'':'s')),{color:'var(--core-color-text-muted)'})),
       h('div',{style:{padding:'14px 16px'}}, detailBody));
     const twoCol='repeat(auto-fit, minmax(340px, 1fr))';
     const wrap=(eff.viz&&eff.viz.type==='ubo')
@@ -697,11 +794,11 @@ export default class App extends React.Component {
   relAttrsStrip(sec){ const h=React.createElement; const ra=sec.relAttrs||[]; if(!ra.length) return null;
     return h('div',{style:{margin:'12px 0 6px',padding:'13px 15px',borderRadius:'var(--core-radius-card)',background:'var(--core-color-surface-inset)',border:'1px solid var(--core-color-border-default)'}},
       h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginBottom:11}},
-        this.mono('Evaluated against — relevant data attributes',{color:'var(--core-color-text-muted)'}),
-        h('button',{onClick:()=>this.setState({attrsOpen:true}),style:{background:'none',border:0,color:'var(--core-color-text-muted)',cursor:'pointer',fontFamily:'var(--app-font-mono)',fontSize:9.5,letterSpacing:'.04em',textTransform:'uppercase'}},'All attributes →')),
+        this.mono('Evaluated against · relevant data attributes',{color:'var(--core-color-text-muted)'}),
+        h('button',{onClick:()=>this.setState({attrsOpen:true}),style:{background:'none',border:0,color:'var(--core-color-text-muted)',cursor:'pointer',fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.04em',textTransform:'uppercase'}},'All attributes →')),
       h('div',{style:{display:'flex',flexWrap:'wrap',gap:8}}, ...ra.map((a,i)=>
         h('div',{key:i,style:{display:'inline-flex',alignItems:'baseline',gap:7,padding:'6px 11px',borderRadius:9,background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)'}},
-          h('span',{style:{fontFamily:'var(--app-font-mono)',fontSize:9,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-muted)'}},a.k),
+          h('span',{style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-muted)'}},a.k),
           h('span',{style:{fontSize:12.5,color:'var(--core-color-text-primary)',fontWeight:500}},a.v)))));
   }
   hasFindings(sec){ return sec.q.some(q=>{const s=this.statusOf(this.qEffective(q).tone);return s==='review'||s==='flag';}); }
@@ -722,15 +819,14 @@ export default class App extends React.Component {
     const toggleAll=()=>{ const o=this.state.secAll||{}; this.setState({secAll:{...o,[sec.id]:!showAll}}); };
     return h('div',{key:sec.id,id:'pol-'+sec.id,style:{borderBottom:'1px solid var(--core-color-border-default)'}},
       h('button',{onClick:()=>this.toggleSec(sec),style:{display:'flex',alignItems:'center',gap:14,width:'100%',padding:'16px 22px',border:0,background:open?'var(--core-color-surface-inset)':'var(--core-color-surface-card)',cursor:'pointer',textAlign:'left',fontFamily:'inherit'}},
-        h('span',{style:{width:9,height:9,borderRadius:'50%',background:wc,flexShrink:0}}),
         h('div',{style:{flex:1,minWidth:0}}, h('div',{style:{fontSize:14,fontWeight:500,color:'var(--core-color-text-primary)'}},sec.name), this.mono(sec.attr+' · '+sec.q.length+' questions')),
-        flg?this.pill(flg+' flag','high',{fontSize:9}):null,
-        rev?this.pill(rev+' review','watch',{fontSize:9}):null,
-        clr?this.pill(clr+' clear','clear',{fontSize:9}):null,
-        h('span',{style:{color:'var(--core-color-text-disabled)',fontSize:13,marginLeft:4,transform:open?'rotate(180deg)':'none',transition:'transform .2s'}},'⌄')),
+        flg?this.coreBadge(flg+' flag','status','danger'):null,
+        rev?this.coreBadge(rev+' review','status','warning'):null,
+        clr?this.coreBadge(clr+' clear','status','success'):null,
+        h('span',{style:{color:'var(--core-color-text-muted)',fontSize:13,marginLeft:4,transform:open?'rotate(180deg)':'none',transition:'transform .2s'}},'⌄')),
       sec.summary?h('div',{style:{padding:'0 22px 16px 22px',background:open?'var(--core-color-surface-inset)':'var(--core-color-surface-card)'}}, h('div',{style:{padding:'14px 16px',background:'color-mix(in srgb, '+wc+' 5%, var(--core-color-surface-card))',borderRadius:'var(--core-radius-card)',border:'1px solid color-mix(in srgb, '+wc+' 22%, var(--core-color-surface-card))'}}, this.mono('Summary',{display:'block',marginBottom:5,color:wc}), h('p',{style:{margin:0,fontSize:13,lineHeight:1.6,color:'var(--core-color-text-secondary)',textWrap:'pretty'}},sec.summary))):null,
       open?h('div',{style:{padding:'2px 22px 8px',animation:'mdFade .2s var(--core-ease-standard)'}}, ...rows.map(([q,i],k)=>this.qRow(sec,q,i,k===rows.length-1)),
-        (isFilter&&hidden>0)?h('button',{onClick:toggleAll,style:{display:'inline-flex',alignItems:'center',gap:6,marginTop:6,padding:'7px 12px',border:'1px solid var(--core-color-border-default)',borderRadius:8,background:'var(--core-color-surface-card)',cursor:'pointer',fontFamily:'var(--app-font-mono)',fontSize:9.5,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-muted)'}}, showAll?('Show only matches'):('Show all '+full.length+' checks'), h('span',{style:{fontSize:11}}, showAll?'−':'+')):null):null);
+        (isFilter&&hidden>0)?h(ActionButton,{variant:'secondary',onClick:toggleAll,style:{marginTop:6}}, showAll?('Show only matches'):('Show all '+full.length+' checks'), h('span',{style:{fontSize:11}}, showAll?'−':'+')):null):null);
   }
 
   policyHeader(){ const h=React.createElement; const s=this.policyStats();
@@ -755,7 +851,7 @@ export default class App extends React.Component {
             h('span',{style:{width:8,height:8,borderRadius:'50%',background:wc,flexShrink:0}}),
             h('span',{style:{fontSize:13.5,fontWeight:500,flex:1,color:'var(--core-color-text-primary)'}},g.sec.name),
             this.mono(g.list.length+(g.list.length>1?' findings':' finding'),{color:'var(--core-color-text-muted)'}),
-            h('span',{style:{color:'var(--core-color-text-disabled)',fontSize:11.5}},'View in policy →')),
+            h('span',{style:{color:'var(--core-color-text-muted)',fontSize:11.5}},'View in policy →')),
           h('div',{style:{padding:'2px 22px 0 42px',display:'flex',flexDirection:'column',gap:7}}, ...g.list.map((it,k)=>{ const sc=this.STAT[it.st].c;
             return h('button',{key:k,onClick:()=>{ this.setState({openSec:g.sec.id,openQ:g.sec.id+':'+it.i,attnOnly:false}); this.scrollToSection(g.sec.id); },style:{display:'flex',alignItems:'center',gap:11,width:'100%',padding:'9px 12px',border:'1px solid var(--core-color-border-default)',borderLeft:'2px solid '+sc,borderRadius:9,background:'var(--core-color-surface-card)',cursor:'pointer',textAlign:'left',fontFamily:'inherit'}},
               h('span',{style:{flex:1,minWidth:0,fontSize:12.5,color:'var(--core-color-text-secondary)',lineHeight:1.35}},it.q.t),
@@ -767,33 +863,27 @@ export default class App extends React.Component {
     const P=this.state.policy; const f=this.polF; const findingsSecs=P.filter(s=>this.hasFindings(s)); const cleanSecs=P.filter(s=>!this.hasFindings(s));
     const s=this.policyStats();
     const rec = s.flag? {t:'Manual review',tone:'elev'} : s.review? {t:'Review recommended',tone:'watch'} : {t:'Clear to approve',tone:'clear'};
-    const stat=(n,label,c)=> h('div',null, h('div',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:38,lineHeight:1,color:c}},n), this.mono(label,{display:'block',marginTop:3}));
-    const tg=(label,val,c)=>h('button',{onClick:()=>this.setState({polFilter:val}),style:{display:'inline-flex',alignItems:'center',gap:6,padding:'5px 11px',borderRadius:'var(--core-radius-pill)',border:'1px solid '+(f===val?'var(--core-color-state-selected-border)':'var(--core-color-border-default)'),background:f===val?'var(--core-color-state-selected-bg)':'var(--core-color-surface-card)',color:f===val?'var(--core-color-state-selected-fg)':'var(--core-color-text-muted)',fontWeight:f===val?600:400,cursor:'pointer',fontSize:11,fontFamily:'inherit'}}, c?h('span',{style:{width:6,height:6,borderRadius:'50%',background:f===val?c:c}}):null, label);
-    const toggle=h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}}, tg('All '+P.reduce((n,s)=>n+s.q.length,0),'all'), tg('Pass','pass','var(--risk-clear)'), tg('Review','review','var(--risk-watch)'), tg('Flag','flag','var(--risk-high)'));
+    const tg=(label,val,c,n)=>h(SegmentedControlItem,{key:val,value:val,icon:c?h('span',{style:{width:6,height:6,borderRadius:'50%',background:c,flexShrink:0}}):null},
+      label, n!=null?h('span',{style:{marginLeft:5,fontWeight:600}},n):null);
+    const toggle=h(SegmentedControl,{size:'sm',value:f,onValueChange:(v)=>this.setState({polFilter:v}),'aria-label':'Filter policy checks'},
+      tg('All','all',null,P.reduce((n,s)=>n+s.q.length,0)), tg('Pass','pass','var(--risk-clear)',s.pass), tg('Review','review','var(--risk-watch)',s.review), tg('Flag','flag','var(--risk-high)',s.flag));
     return this.panel({},
-      // merged header
-      h('div',{style:{padding:'24px 28px 22px',borderBottom:'1px solid var(--core-color-border-default)',display:'flex',justifyContent:'space-between',gap:30,flexWrap:'wrap',alignItems:'center'}},
-        h('div',null,
-          h('h2',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:26,letterSpacing:'-.01em',margin:0}},'Insights')),
-        h('div',{style:{display:'flex',gap:32}}, stat(s.pass,'Pass','var(--risk-clear)'), stat(s.review,'Review','var(--risk-watch)'), stat(s.flag,'Flag','var(--risk-high)'))),
-      // toolbar
-      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'13px 22px',borderBottom:'1px solid var(--core-color-border-default)'}},
-        h('span',{style:{fontSize:13,fontWeight:500}},'Policy'), toggle),
+      this.panelHead('Insights', toggle),
       // sections
       h('div',null,
         ...(f==='attn'
           ? findingsSecs.map(sec=>this.secRow(sec))
           : f==='all'
             ? [...findingsSecs.map(sec=>this.secRow(sec)),
-               cleanSecs.length?h('div',{key:'div',style:{padding:'11px 22px',background:'var(--core-color-surface-inset)',borderBottom:'1px solid var(--core-color-border-default)'}}, this.mono('Cleared — '+cleanSecs.length+' sections, no findings',{color:'var(--core-color-text-disabled)'})):null,
+               cleanSecs.length?h('div',{key:'div',style:{padding:'11px 22px',background:'var(--core-color-surface-inset)',borderBottom:'1px solid var(--core-color-border-default)'}}, this.mono('Cleared · '+cleanSecs.length+' sections, no findings',{color:'var(--core-color-text-muted)'})):null,
                ...cleanSecs.map(sec=>this.secRow(sec))]
-            : (()=>{ const secs=P.filter(s=>this.secMatches(s,f)); return secs.length?secs.map(sec=>this.secRow(sec)):[h('div',{key:'none',style:{padding:'22px',textAlign:'center',color:'var(--core-color-text-disabled)',fontSize:13}},'No '+f+' questions')]; })())));
+            : (()=>{ const secs=P.filter(s=>this.secMatches(s,f)); return secs.length?secs.map(sec=>this.secRow(sec)):[h('div',{key:'none',style:{padding:'22px',textAlign:'center',color:'var(--core-color-text-muted)',fontSize:13}},'No '+f+' questions')]; })())));
   }
 
   policySummaryCard(){ const h=React.createElement; if(!this.state.policy) return this.panel({}, this.panelHead('Onboarding policy'), h('div',{style:{padding:'24px',color:'var(--core-color-text-muted)',fontSize:13}},'Loading…'));
     const s=this.policyStats(); const items=this.policyAttention().slice(0,3);
     const mini=(n,label,c)=> h('div',{style:{display:'flex',alignItems:'baseline',gap:6}}, h('span',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:22,color:c,lineHeight:1}},n), this.mono(label));
-    return this.panel({}, this.panelHead('Questions that matter', this.mono('Mercury · onboarding policy')),
+    return this.panel({}, this.panelHead('Questions that matter', this.mono('Onboarding policy')),
       h('div',{style:{padding:'16px 22px',borderBottom:'1px solid var(--core-color-border-default)',display:'flex',gap:24,flexWrap:'wrap'}}, mini(s.pass,'pass','var(--risk-clear)'), mini(s.review,'review','var(--risk-watch)'), mini(s.flag,'flag','var(--risk-high)')),
       h('div',{style:{padding:'6px 0'}}, ...items.map((it,i)=>{ const sc=this.STAT[it.st].c;
         return h('button',{key:i,onClick:()=>this.setS({direction:'C',view:'identity'}),style:{display:'flex',alignItems:'flex-start',gap:11,width:'100%',padding:'12px 22px',border:0,borderBottom:'1px solid var(--core-color-border-default)',background:'transparent',cursor:'pointer',textAlign:'left',fontFamily:'inherit'}},
@@ -834,7 +924,7 @@ export default class App extends React.Component {
   /* ---------- latest decision + history drawer (decisions demoted from first-class) ---------- */
   lastDecisionCard(){ const h=React.createElement; const asMs=this.asOfMs; const avail=this.decisions.filter(d=>this.parseDate(d.date)<=asMs); const d=avail[0]||this.decisions[this.decisions.length-1]; const c=this.RISK[d.tone].c; const older=Math.max(0,avail.length-1);
     return this.panel({}, this.panelHead('Latest decision',
-      h('button',{onClick:()=>this.setState({decisionsOpen:true}),style:{display:'inline-flex',alignItems:'center',gap:7,padding:'6px 11px',borderRadius:8,border:'1px solid var(--core-color-border-default)',background:'var(--core-color-surface-card)',cursor:'pointer',fontSize:12,color:'var(--core-color-text-secondary)',fontFamily:'inherit'}}, 'History ('+avail.length+')', h('span',{style:{color:'var(--core-color-text-disabled)'}},'→'))),
+      h('button',{onClick:()=>this.setState({decisionsOpen:true}),style:{display:'inline-flex',alignItems:'center',gap:7,padding:'6px 11px',borderRadius:8,border:'1px solid var(--core-color-border-default)',background:'var(--core-color-surface-card)',cursor:'pointer',fontSize:12,color:'var(--core-color-text-secondary)',fontFamily:'inherit'}}, 'History ('+avail.length+')', h('span',{style:{color:'var(--core-color-text-muted)'}},'→'))),
       h('div',{style:{padding:'18px 22px'}},
         h('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}, this.mono(d.date), this.pill(d.outcome,d.tone)),
         h('div',{style:{fontSize:16,fontWeight:500,margin:'8px 0 6px'}},d.title),
@@ -849,7 +939,7 @@ export default class App extends React.Component {
       h('div',{style:{position:'relative',width:480,maxWidth:'92vw',height:'100%',background:'var(--core-color-surface-card)',boxShadow:'var(--core-color-elevation-drawer)',display:'flex',flexDirection:'column',animation:'mdSlide .28s var(--core-ease-emphasized)'}},
         h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'20px 24px',borderBottom:'1px solid var(--core-color-border-default)'}},
           h('div',null, this.mono('Persisted & versioned'), h('div',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:22,marginTop:4}},'Decision history')),
-          h('button',{onClick:()=>this.setState({decisionsOpen:false}),style:{width:34,height:34,borderRadius:9,border:'1px solid var(--core-color-border-default)',background:'var(--core-color-surface-card)',cursor:'pointer',fontSize:16,color:'var(--core-color-text-muted)'}},'✕')),
+          h(IconActionButton,{variant:'secondary',size:'standard','aria-label':'Close',onClick:()=>this.setState({decisionsOpen:false}),style:{fontSize:16,color:'var(--core-color-text-muted)'}},'✕')),
         h('div',{style:{flex:1,overflowY:'auto',padding:'8px 0'}}, ...this.decisions.map((d,i)=>{ const c=this.RISK[d.tone].c; const last=i===this.decisions.length-1;
           return h('div',{key:i,style:{display:'grid',gridTemplateColumns:'18px 1fr',gap:14,padding:'18px 24px',borderBottom:last?'none':'1px solid var(--core-color-border-default)'}},
             h('div',{style:{display:'flex',flexDirection:'column',alignItems:'center'}}, h('span',{style:{width:11,height:11,borderRadius:'50%',background:i===0?c:'var(--core-color-surface-card)',border:'2px solid '+c,marginTop:4}}), last?null:h('div',{style:{flex:1,width:1,background:'var(--core-color-border-default)',marginTop:6}})),
@@ -864,7 +954,7 @@ export default class App extends React.Component {
   connectedIdentitiesPanel(){ const h=React.createElement; const E=this.entities;
     const cfg=this.profile.connected||{own:[],conn:[],summary:'No connected identities on record.'};
     const own=cfg.own||[]; const conn=cfg.conn||[];
-    const avatar=(e)=> h('span',{style:{width:30,height:30,borderRadius:e.kind==='person'?'50%':8,background:'var(--core-color-surface-canvas)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--app-font-mono)',fontSize:10,color:'var(--core-color-text-secondary)',flexShrink:0}}, e.name.split(' ').slice(0,2).map(w=>w[0]).join(''));
+    const avatar=(e)=> h('span',{style:{width:30,height:30,borderRadius:e.kind==='person'?'50%':8,background:'var(--core-color-surface-canvas)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,color:'var(--core-color-text-secondary)',flexShrink:0}}, e.name.split(' ').slice(0,2).map(w=>w[0]).join(''));
     return this.panel({}, this.panelHead('Connected identities', this.mono('From the Intelligence view')),
       h('div',{style:{padding:'16px 22px 18px'}},
         h('p',{style:{margin:'0 0 16px',fontSize:13,lineHeight:1.55,color:'var(--core-color-text-secondary)'}},cfg.summary),
@@ -872,9 +962,9 @@ export default class App extends React.Component {
         own.length?h('div',{style:{margin:'10px 0 6px',display:'flex',flexDirection:'column',gap:8}}, ...own.map(o=>{ const e=E[o.id]; const c=this.RISK[o.risk].c;
           return h('div',{key:o.id,style:{display:'flex',alignItems:'center',gap:12,padding:'11px 13px',borderRadius:'var(--core-radius-card)',border:'1px solid var(--core-color-border-default)'}},
             avatar(e),
-            h('div',{style:{flex:1,minWidth:0}}, h('div',{style:{fontSize:13.5,fontWeight:500}},e.name), h('div',{style:{fontSize:11.5,color:'var(--core-color-text-muted)',marginTop:2}},o.rel+' — '+o.note)),
+            h('div',{style:{flex:1,minWidth:0}}, h('div',{style:{fontSize:13.5,fontWeight:500}},e.name), h('div',{style:{fontSize:11.5,color:'var(--core-color-text-muted)',marginTop:2}},o.rel+' · '+o.note)),
             h('div',{style:{textAlign:'right'}}, h('div',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:22,lineHeight:1,color:'var(--core-color-text-primary)'}},o.pct+'%'), h('span',{style:{display:'inline-block',width:7,height:7,borderRadius:'50%',background:c,marginTop:5}}))); })):null,
-        cfg.note?h('div',{style:{fontSize:11.5,color:'var(--core-color-text-muted)',padding:'2px 2px 0',display:'flex',alignItems:'center',gap:7}}, h('span',{style:{color:'var(--core-color-text-disabled)'}},'↳'),cfg.note):null,
+        cfg.note?h('div',{style:{fontSize:11.5,color:'var(--core-color-text-muted)',padding:'2px 2px 0',display:'flex',alignItems:'center',gap:7}}, h('span',{style:{color:'var(--core-color-text-muted)'}},'↳'),cfg.note):null,
         (own.length&&conn.length)?h('div',{style:{height:1,background:'var(--core-color-border-default)',margin:'16px 0'}}):null,
         conn.length?this.mono('Connected through shared attributes'):null,
         conn.length?h('div',{style:{margin:'10px 0 0',display:'flex',flexDirection:'column',gap:8}}, ...conn.map(c=>{ const e=E[c.id]; const rc=this.RISK[c.risk].c;
@@ -884,8 +974,8 @@ export default class App extends React.Component {
             this.strengthMeter(c.strength),
             this.pill(this.RISK[c.risk].label,c.risk)); })):null,
         h('div',{style:{display:'flex',gap:10,marginTop:16}},
-          h('button',{onClick:()=>this.openIntel('What businesses share a common owner with '+this.nameOf+'?'),style:{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 16px',minHeight:32,borderRadius:'var(--core-radius-pill)',border:'1px solid var(--core-color-action-primary-border)',background:'var(--core-color-action-primary-bg)',color:'var(--core-color-action-primary-fg)',cursor:'pointer',fontSize:13,fontWeight:500,fontFamily:'inherit'}},'Ask Intelligence',h('span',null,'→')),
-          h('button',{onClick:()=>this.setS({view:'identity',direction:'B'}),style:{display:'inline-flex',alignItems:'center',gap:8,padding:'10px 15px',borderRadius:10,border:'1px solid var(--core-color-border-default)',background:'var(--core-color-surface-card)',color:'var(--core-color-text-secondary)',cursor:'pointer',fontSize:13,fontFamily:'inherit'}},'View network'))));
+          h(ActionButton,{variant:'primary',onClick:()=>this.openIntel('What businesses share a common owner with '+this.nameOf+'?')},'Ask Intelligence',h('span',null,'→')),
+          h(ActionButton,{variant:'secondary',onClick:()=>this.setS({view:'identity',direction:'B'})},'View network'))));
   }
 
   /* ---------- data attributes (atomic data behind the questions) — tertiary, collapsible ---------- */
@@ -896,20 +986,20 @@ export default class App extends React.Component {
     return this.panel({},
       h('button',{onClick:()=>this.setState({attrsOpen:!open}),style:{display:'flex',alignItems:'center',justifyContent:'space-between',width:'100%',padding:'15px 22px',border:0,background:'var(--core-color-surface-card)',cursor:'pointer',fontFamily:'inherit',textAlign:'left'}},
         h('div',{style:{display:'flex',alignItems:'baseline',gap:12}}, h('span',{style:{fontSize:13,fontWeight:500}},'Data attributes'), this.mono('Atomic data · '+count+' attributes · '+sharedCount+' shared')),
-        h('span',{style:{color:'var(--core-color-text-disabled)',fontSize:13,transform:open?'rotate(180deg)':'none',transition:'transform .2s'}},'⌄')),
+        h('span',{style:{color:'var(--core-color-text-muted)',fontSize:13,transform:open?'rotate(180deg)':'none',transition:'transform .2s'}},'⌄')),
       open?h('div',{style:{padding:'4px 22px 20px',borderTop:'1px solid var(--core-color-border-default)',animation:'mdFade .2s var(--core-ease-standard)'}},
         h('p',{style:{margin:'14px 0 16px',fontSize:12.5,lineHeight:1.5,color:'var(--core-color-text-muted)',maxWidth:680}},'Every attribute that answers a question, with its source. Attributes shared with other identities are what link Vela into the network \u2014 these power the Intelligence view.'),
         ...this.dataAttrs.map((grp,gi)=>
           h('div',{key:gi,style:{marginBottom:gi<this.dataAttrs.length-1?18:0}},
-            this.mono(grp.g,{color:'var(--core-color-text-disabled)'}),
+            this.mono(grp.g,{color:'var(--core-color-text-muted)'}),
             h('div',{style:{marginTop:8,border:'1px solid var(--core-color-border-default)',borderRadius:'var(--core-radius-card)',overflow:'hidden'}}, ...grp.rows.map((r,ri)=>
               h('div',{key:ri,style:{display:'grid',gridTemplateColumns:'180px 1fr auto',gap:14,alignItems:'center',padding:'10px 14px',borderBottom:ri<grp.rows.length-1?'1px solid var(--core-color-border-default)':'none',background:'var(--core-color-surface-card)'}},
                 this.mono(r.k),
-                h('span',{style:{fontSize:13,color:r.muted?'var(--core-color-text-disabled)':'var(--core-color-text-primary)',fontFamily:r.mono?'var(--app-font-mono)':'inherit'}},r.v),
+                h('span',{style:{fontSize:13,color:r.muted?'var(--core-color-text-muted)':'var(--core-color-text-primary)',fontFamily:'inherit'}},r.v),
                 h('div',{style:{display:'flex',alignItems:'center',gap:8,justifyContent:'flex-end',flexWrap:'wrap'}},
-                  r.shared?h('button',{onClick:()=>this.openIntel(r.weight==='strong'?(r.k==='Officer'?'What businesses share the officer Marcus Okonkwo?':'What businesses share a common owner with Vela Logistics?'):'What businesses share the 4400 Wilshire Blvd address?'),style:{display:'inline-flex',alignItems:'center',gap:6,padding:'3px 8px',borderRadius:'var(--core-radius-pill)',border:'1px solid var(--core-color-status-info-border)',background:'var(--core-color-status-info-bg)',color:'var(--core-color-status-info-fg)',cursor:'pointer',fontFamily:'var(--app-font)',fontSize:10,fontWeight:500}}, h('span',{style:{width:4,height:4,borderRadius:'50%',background:'var(--core-color-status-info-fg)'}}),'Shared · '+r.shared):null,
+                  r.shared?h('button',{onClick:()=>this.openIntel(r.weight==='strong'?(r.k==='Officer'?'What businesses share the officer Marcus Okonkwo?':'What businesses share a common owner with Vela Logistics?'):'What businesses share the 4400 Wilshire Blvd address?'),className:'core-badge core-badge-compact',style:{display:'inline-flex',alignItems:'center',gap:4,fontWeight:500,lineHeight:1,border:'1px solid var(--core-color-status-info-border)',background:'var(--core-color-status-info-bg)',color:'var(--core-color-status-info-fg)',cursor:'pointer'}},'Shared · '+r.shared):null,
                   r.unique?this.mono('Unique',{color:'var(--risk-clear)'}):null,
-                  r.excluded?this.mono('Excluded',{color:'var(--core-color-text-disabled)'}):null,
+                  r.excluded?this.mono('Excluded',{color:'var(--core-color-text-muted)'}):null,
                   this.mono(r.src,{color:'var(--core-color-text-muted)'}))))))) ):null);
   }
   A_identity(){
@@ -928,17 +1018,17 @@ export default class App extends React.Component {
 
   /* ---------- Intelligence (A) : structured list / tree ---------- */
   get queries(){ return {
-    address:{label:'Shared address',value:'4400 Wilshire Blvd, Los Angeles, CA',attr:'Address',note:'A commercial address. Sharing it is a weak signal — many unrelated businesses can use the same building.',risk:'low',
+    address:{label:'Shared address',value:'4400 Wilshire Blvd, Los Angeles, CA',attr:'Address',note:'A commercial address. Sharing it is a weak signal: many unrelated businesses can use the same building.',risk:'low',
       conns:[
         {id:'vela',ctype:'Shared address',strength:'weak',risk:'clear',ev:'Listed as principal address since Oct 2024',self:true},
         {id:'cedar',ctype:'Shared address',strength:'weak',risk:'clear',ev:'Registered agent address on CA SoS filing'},
         {id:'brightpath',ctype:'Shared address',strength:'weak',risk:'clear',ev:'Mailing address on 2 state registrations'}]},
-    ubo:{label:'Common owner',value:'Meridian Holdings LLC',attr:'Beneficial owner',note:'A controlling beneficial owner. Sharing one is a strong signal — it implies common control.',risk:'watch',
+    ubo:{label:'Common owner',value:'Meridian Holdings LLC',attr:'Beneficial owner',note:'A controlling beneficial owner. Sharing one is a strong signal: it implies common control.',risk:'watch',
       conns:[
         {id:'vela',ctype:'Owns 60%',strength:'strong',risk:'watch',ev:'FinCEN BOI filing · controlling interest',self:true,pct:60},
         {id:'anchor',ctype:'Owns 100%',strength:'strong',risk:'low',ev:'FinCEN BOI filing · wholly owned',pct:100},
         {id:'okonkwo',ctype:'Owns Meridian 75%',strength:'strong',risk:'low',ev:'FinCEN BOI filing',pct:75}]},
-    officer:{label:'Common officer',value:'Marcus Okonkwo',attr:'Officer',note:'A shared officer is a strong signal of an operating relationship — and the path that carries hidden risk here.',risk:'elev',
+    officer:{label:'Common officer',value:'Marcus Okonkwo',attr:'Officer',note:'A shared officer is a strong signal of an operating relationship, and the path that carries hidden risk here.',risk:'elev',
       conns:[
         {id:'vela',ctype:'Controls via Meridian',strength:'strong',risk:'watch',ev:'Indirect through Meridian Holdings',self:true},
         {id:'harbor',ctype:'Officer',strength:'strong',risk:'watch',ev:'Director on CA SoS record'},
@@ -961,7 +1051,7 @@ export default class App extends React.Component {
     const h=React.createElement; const txt=this.state.intelQ||''; const open=this.state.intelOpen;
     const filt=this.intelSuggest.filter(s=> !txt || (s.kind+' '+s.value+' '+s.terms).toLowerCase().includes(txt.toLowerCase()));
     const chip=(s)=> h('button',{key:s.k,onMouseDown:(e)=>{e.preventDefault();this.selectAttr(s.k);},style:{display:'inline-flex',alignItems:'center',gap:8,padding:'6px 11px',border:'1px solid '+(this.state.query===s.k&&!this.state.ingestedDoc?'var(--core-color-state-selected-border)':'var(--core-color-border-default)'),background:this.state.query===s.k&&!this.state.ingestedDoc?'var(--core-color-state-selected-bg)':'var(--core-color-surface-card)',color:this.state.query===s.k&&!this.state.ingestedDoc?'var(--core-color-state-selected-fg)':'var(--core-color-text-secondary)',borderRadius:'var(--core-radius-pill)',cursor:'pointer',fontSize:12,transition:'all .15s'}},
-      h('span',{style:{fontFamily:'var(--app-font-mono)',fontSize:9,letterSpacing:'.04em',textTransform:'uppercase',opacity:.65}},s.kind), s.value);
+      h('span',{style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.04em',textTransform:'uppercase',opacity:.65}},s.kind), s.value);
     return h('div',{style:{background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',borderRadius:'var(--core-radius-card)',padding:'22px 26px'}},
       this.mono('Intelligence · Start from a data attribute'),
       h('div',{style:{display:'flex',alignItems:'center',gap:8,margin:'8px 0 14px',flexWrap:'wrap'}},
@@ -969,24 +1059,24 @@ export default class App extends React.Component {
       // input row
       h('div',{style:{position:'relative'}},
         h('div',{style:{display:'flex',alignItems:'center',gap:12,padding:'13px 16px',border:'1px solid '+(open?'var(--core-color-control-border-focus)':'var(--core-color-control-border)'),borderRadius:'var(--core-radius-card)',background:'var(--core-color-control-bg)',transition:'border-color var(--core-duration-fast) var(--core-ease-standard)',boxShadow:open?'0 0 0 2px var(--core-color-focus-offset), 0 0 0 4px var(--core-color-focus-control)':'none'}},
-          h('svg',{width:16,height:16,viewBox:'0 0 24 24',fill:'none',stroke:'var(--core-color-text-disabled)',strokeWidth:2,style:{flexShrink:0}}, h('circle',{cx:11,cy:11,r:7}), h('line',{x1:21,y1:21,x2:16.5,y2:16.5})),
-          h('input',{value:txt,placeholder:'Type a data attribute — address, owner, officer, phone, TIN, email, IP…',
+          h('svg',{width:16,height:16,viewBox:'0 0 24 24',fill:'none',stroke:'var(--core-color-text-muted)',strokeWidth:2,style:{flexShrink:0}}, h('circle',{cx:11,cy:11,r:7}), h('line',{x1:21,y1:21,x2:16.5,y2:16.5})),
+          h('input',{value:txt,placeholder:'Type a data attribute: address, owner, officer, phone, TIN, email, IP…',
             onChange:(e)=>this.setState({intelQ:e.target.value,intelOpen:true}),
             onFocus:()=>this.setState({intelOpen:true}),
             onBlur:()=>setTimeout(()=>this.setState({intelOpen:false}),140),
             onKeyDown:(e)=>{ if(e.key==='Enter'&&filt[0]) this.selectAttr(filt[0].k); if(e.key==='Escape') e.target.blur(); },
             style:{flex:1,minWidth:0,border:0,outline:'none',background:'transparent',font:'400 15px var(--app-font)',color:'var(--core-color-text-primary)'}}),
-          h('label',{style:{display:'inline-flex',alignItems:'center',gap:7,padding:'8px 12px',borderRadius:9,border:'1px dashed var(--core-color-text-disabled)',color:'var(--core-color-text-secondary)',cursor:'pointer',fontSize:12.5,whiteSpace:'nowrap',flexShrink:0}},
+          h('label',{style:{display:'inline-flex',alignItems:'center',gap:7,padding:'8px 12px',borderRadius:9,border:'1px dashed var(--core-color-text-muted)',color:'var(--core-color-text-secondary)',cursor:'pointer',fontSize:12.5,whiteSpace:'nowrap',flexShrink:0}},
             h('svg',{width:14,height:14,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2}, h('path',{d:'M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48'})),
             'Attach document',
             h('input',{type:'file',accept:'.pdf,.png,.jpg,.jpeg,.csv,.doc,.docx',onChange:(e)=>this.onIngest(e),style:{display:'none'}}))),
         // suggestion dropdown
-        open?h('div',{style:{position:'absolute',top:'calc(100% + 6px)',left:0,right:0,zIndex:10,background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',borderRadius:'var(--core-radius-card)',boxShadow:'var(--core-color-elevation-raised)',overflow:'hidden',animation:'mdFade .15s var(--core-ease-standard)'}},
-          h('div',{style:{padding:'9px 14px',borderBottom:'1px solid var(--core-color-border-default)'}}, this.mono(txt?'Matching attributes':'Attributes on this identity')),
-          filt.length?filt.map((s,i)=> h('div',{key:s.k,onMouseDown:(e)=>{e.preventDefault();this.selectAttr(s.k);},style:{display:'flex',alignItems:'center',gap:12,padding:'11px 14px',cursor:'pointer',borderBottom:i<filt.length-1?'1px solid var(--core-color-border-default)':'none'},onMouseEnter:(e)=>e.currentTarget.style.background='var(--core-color-state-hover-bg)',onMouseLeave:(e)=>e.currentTarget.style.background='transparent'},
+        open?h('div',{className:'core-menu-content',style:{position:'absolute',top:'calc(100% + 6px)',left:0,right:0,zIndex:10,borderRadius:'var(--core-radius-popover)',borderWidth:1,borderStyle:'solid',boxShadow:'var(--core-color-elevation-popover)',overflow:'hidden',animation:'mdFade .15s var(--core-ease-standard)'}},
+          h('div',{style:{padding:'7px 10px 5px'}}, this.mono(txt?'Matching attributes':'Attributes on this identity')),
+          filt.length?filt.map((s)=> h('div',{key:s.k,className:'app-suggest-item',onMouseDown:(e)=>{e.preventDefault();this.selectAttr(s.k);}},
             h('span',{style:{width:26,height:26,borderRadius:7,background:'var(--core-color-surface-canvas)',display:'inline-flex',alignItems:'center',justifyContent:'center',flexShrink:0}}, h('span',{style:{width:7,height:7,borderRadius:'50%',background:'var(--core-color-text-muted)'}})),
             h('div',{style:{flex:1,minWidth:0}}, h('div',{style:{fontSize:13.5,fontWeight:500}},s.value), this.mono(s.kind)),
-            h('span',{style:{fontSize:11,color:'var(--core-color-text-disabled)'}},'↵'))):
+            h('span',{style:{fontSize:11,color:'var(--core-color-text-muted)'}},'↵'))):
           h('div',{style:{padding:'14px',fontSize:12.5,color:'var(--core-color-text-muted)'}},'No matching attribute on this identity. Attach a document to add one.')):null),
       // active selection / ingested doc readout
       this.state.ingestedDoc?
@@ -1003,7 +1093,7 @@ export default class App extends React.Component {
           h('div',{style:{textAlign:'right'}}, this.mono('Aggregate network risk'), h('div',{style:{marginTop:4}},this.pill(this.RISK[q.risk].label,q.risk)))),
       // quick-pick chips
       h('div',{style:{display:'flex',alignItems:'center',gap:8,marginTop:14,flexWrap:'wrap'}},
-        this.mono('Try',{color:'var(--core-color-text-disabled)'}), ...this.intelSuggest.map(chip)));
+        this.mono('Try',{color:'var(--core-color-text-muted)'}), ...this.intelSuggest.map(chip)));
   }
   /* =====================================================
      INTELLIGENCE VIEW — chat (ask a question → assembled answer)
@@ -1021,15 +1111,28 @@ export default class App extends React.Component {
     if(/owner|ubo|ownership|meridian|beneficial|parent|control/.test(s)) return 'ubo';
     if(/address|location|building|wilshire|premise/.test(s)) return 'address';
     return null; }
+  chatTitle(t,key){ const s=(t||'').toLowerCase();
+    let who=null;
+    for(const id of Object.keys(this.PROFILES)){ const n=this.PROFILES[id].name; if(s.indexOf(n.split(' ')[0].toLowerCase())>=0){ who=n.split(',')[0]; break; } }
+    const base={portfolio:'Portfolio risk',identity:'Business summary',officer:'Shared officers',ubo:'Ownership & control',address:'Shared address'}[key];
+    if(base&&who) return base+' · '+who;
+    if(base) return base;
+    if(who) return who;
+    return t.length>32 ? t.slice(0,32)+'…' : t; }
   askIntel(text){ const t=(text||'').trim(); if(!t) return; const key=this.keyFromText(t);
-    this.setState(s=>({chat:[...s.chat,{q:t,key}],chatInput:''}), ()=>{ const el=document.getElementById('intel-msgs'); if(el) setTimeout(()=>el.scrollTo({top:el.scrollHeight,behavior:'smooth'}),60); }); }
-  openIntel(text){ this.setS({view:'intelligence'}); this.askIntel(text); }
+    this.setState(s=>{
+      let chats=s.chats||[]; let id=s.activeChat; let seq=s.chatSeq||0;
+      if(!id || !chats.some(c=>c.id===id)){ seq+=1; id='chat-'+seq; chats=[...chats,{id,title:this.chatTitle(t,key),msgs:[]}]; }
+      chats=chats.map(c=>c.id===id?{...c,msgs:[...c.msgs,{q:t,key}]}:c);
+      return {chats, activeChat:id, chatSeq:seq, chatInput:''};
+    }, ()=>{ const el=document.getElementById('intel-msgs'); if(el) setTimeout(()=>el.scrollTo({top:el.scrollHeight,behavior:'smooth'}),60); }); }
+  openIntel(text){ this.setState({activeChat:null}); this.setS({view:'intelligence'}); this.askIntel(text); }
 
   connRows(ranked){ const h=React.createElement; const E=this.entities;
     return h('div',{style:{display:'flex',flexDirection:'column',gap:8}}, ...ranked.map((c,i)=>{ const e=E[c.id]; const rc=this.RISK[c.risk].c;
       return h('div',{key:c.id,style:{display:'grid',gridTemplateColumns:'auto 1fr auto auto',gap:13,alignItems:'center',padding:'11px 13px',borderRadius:11,border:'1px solid '+(c.risk==='high'?'color-mix(in srgb, '+rc+' 28%, var(--core-color-surface-card))':'var(--core-color-border-default)'),background:c.risk==='high'?'color-mix(in srgb, '+rc+' 6%, var(--core-color-surface-card))':(c.self?'var(--core-color-state-selected-bg)':'var(--core-color-surface-card)')}},
-        h('span',{style:{width:32,height:32,borderRadius:e.kind==='person'?'50%':8,background:'var(--core-color-surface-canvas)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--app-font-mono)',fontSize:10,color:'var(--core-color-text-secondary)',flexShrink:0}}, e.name.split(' ').slice(0,2).map(w=>w[0]).join('')),
-        h('div',{style:{minWidth:0}}, h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, h('span',{style:{fontSize:13.5,fontWeight:500}},e.name), c.self?this.pill('This business','low',{fontSize:9}):null), h('div',{style:{fontSize:11.5,color:'var(--core-color-text-muted)',marginTop:2}}, e.type+' · '+c.ctype+(c.pct?(' · '+c.pct+'%'):'')+' — '+c.ev)),
+        h('span',{style:{width:32,height:32,borderRadius:e.kind==='person'?'50%':8,background:'var(--core-color-surface-canvas)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,color:'var(--core-color-text-secondary)',flexShrink:0}}, e.name.split(' ').slice(0,2).map(w=>w[0]).join('')),
+        h('div',{style:{minWidth:0}}, h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, h('span',{style:{fontSize:13.5,fontWeight:500}},e.name), c.self?this.pill('This business','low'):null), h('div',{style:{fontSize:11.5,color:'var(--core-color-text-muted)',marginTop:2}}, e.type+' · '+c.ctype+(c.pct?(' · '+c.pct+'%'):'')+' · '+c.ev)),
         this.strengthMeter(c.strength),
         this.pill(this.RISK[c.risk].label,c.risk)); }));
   }
@@ -1042,11 +1145,11 @@ export default class App extends React.Component {
        biz:[{id:'vela',via:'3 hops · shared officer'},{id:'harbor',via:'Direct officer'},{id:'anchor',via:'Common owner'}],
        metric:'+3',metricSub:'this quarter',act:'Review the 3 connected files'},
       {tone:'watch',tag:'Concentration',title:'Meridian Holdings controls 4 businesses you monitor',
-       body:'A single beneficial owner now sits behind 4 active accounts — concentration worth a portfolio-level limit, not just per-file review.',
+       body:'A single beneficial owner now sits behind 4 active accounts. That concentration warrants a portfolio-level limit, not just per-file review.',
        biz:[{id:'vela',via:'60%'},{id:'anchor',via:'100%'},{id:'harbor',via:'via officer'}],
        metric:'4',metricSub:'common control',act:'Set a relationship exposure cap'},
       {tone:'watch',tag:'Trend',title:'Address-sharing up 18% in trucking & logistics',
-       body:'Across your logistics book, more businesses are registering at shared commercial addresses. Weak on its own — but the rate of change is the signal.',
+       body:'Across your logistics book, more businesses are registering at shared commercial addresses. Weak on its own, but the rate of change is the signal.',
        biz:[{id:'vela',via:'4400 Wilshire'},{id:'cedar',via:'4400 Wilshire'},{id:'brightpath',via:'4400 Wilshire'}],
        metric:'+18%',metricSub:'vs. last quarter',act:'See the trucking segment'},
       {tone:'low',tag:'Usage',title:'9 accounts have unresolved findings older than 30 days',
@@ -1064,18 +1167,18 @@ export default class App extends React.Component {
           h('span',{style:{width:8,height:8,borderRadius:'50%',background:this.RISK[t].c}}), this.RISK[t].label, h('span',{style:{color:'var(--core-color-text-primary)',fontWeight:500}},n)))));
   }
   portfolioAnswer(){ const h=React.createElement; const P=this.portfolio; const E=this.entities;
-    const avatar=(id)=>{ const e=E[id]; return h('span',{key:id,title:e.name,style:{width:26,height:26,borderRadius:e.kind==='person'?'50%':7,background:'var(--core-color-surface-canvas)',border:'1.5px solid var(--core-color-surface-card)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--app-font-mono)',fontSize:9,color:'var(--core-color-text-secondary)',marginLeft:-6}}, e.name.split(' ').slice(0,2).map(w=>w[0]).join('')); };
+    const avatar=(id)=>{ const e=E[id]; return h('span',{key:id,title:e.name,style:{width:26,height:26,borderRadius:e.kind==='person'?'50%':7,background:'var(--core-color-surface-canvas)',border:'1.5px solid var(--core-color-surface-card)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,color:'var(--core-color-text-secondary)',marginLeft:-6}}, e.name.split(' ').slice(0,2).map(w=>w[0]).join('')); };
     return h('div',{style:{background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',borderRadius:'var(--core-radius-card)',borderTopLeftRadius:4,padding:'20px 22px',maxWidth:760,display:'flex',flexDirection:'column',gap:16}},
       this.midAttrib(),
       h('div',null,
         h('div',{style:{display:'flex',alignItems:'baseline',gap:10,flexWrap:'wrap'}}, h('span',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:27,lineHeight:1.05}},P.total.toLocaleString()+' businesses'), h('span',{style:{fontSize:14,color:'var(--core-color-text-muted)'}},'monitored across your portfolio'), this.pill('4 insights to elevate','elev')),
-        h('p',{style:{margin:'10px 0 14px',fontSize:13,lineHeight:1.55,color:'var(--core-color-text-secondary)'}},'Here\u2019s what stands out right now — patterns that only appear when I look across businesses, not at any single one.'),
+        h('p',{style:{margin:'10px 0 14px',fontSize:13,lineHeight:1.55,color:'var(--core-color-text-secondary)'}},'Here\u2019s what stands out right now: patterns that only appear when I look across businesses, not at any single one.'),
         this.portfolioBar()),
       h('div',{style:{display:'flex',flexDirection:'column',gap:11}}, ...P.insights.map((ins,i)=>{ const c=this.RISK[ins.tone].c;
         return h('div',{key:i,style:{border:'1px solid var(--core-color-border-default)',borderLeft:'3px solid '+c,borderRadius:'var(--core-radius-card)',padding:'15px 16px',background:'color-mix(in srgb, '+c+' 4%, var(--core-color-surface-card))'}},
           h('div',{style:{display:'flex',justifyContent:'space-between',gap:14,alignItems:'flex-start'}},
             h('div',{style:{minWidth:0,flex:1}},
-              h('div',{style:{display:'flex',alignItems:'center',gap:9,marginBottom:6}}, this.pill(ins.tag,ins.tone,{fontSize:9})),
+              h('div',{style:{display:'flex',alignItems:'center',gap:9,marginBottom:6}}, this.pill(ins.tag,ins.tone)),
               h('div',{style:{fontSize:15,fontWeight:500,lineHeight:1.25}},ins.title),
               h('p',{style:{margin:'6px 0 0',fontSize:12.5,lineHeight:1.5,color:'var(--core-color-text-secondary)'}},ins.body)),
             h('div',{style:{textAlign:'right',flexShrink:0}}, h('div',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:28,lineHeight:1,color:c}},ins.metric), this.mono(ins.metricSub,{display:'block',marginTop:3}))),
@@ -1084,7 +1187,7 @@ export default class App extends React.Component {
               h('div',{style:{display:'flex',paddingLeft:6}}, ...ins.biz.map(b=>avatar(b.id))),
               this.mono(ins.biz.length+(ins.biz.length===1?' business':' businesses'),{color:'var(--core-color-text-muted)'})),
             h('button',{onClick:()=>{ const k=ins.tag==='Emerging risk'?'officer':ins.tag==='Concentration'?'ubo':ins.tag==='Trend'?'address':null; if(k) this.askIntel(ins.act); },style:{display:'inline-flex',alignItems:'center',gap:7,padding:'7px 12px',borderRadius:9,border:'1px solid '+c,background:'var(--core-color-surface-card)',color:c,cursor:'pointer',fontSize:12.5,fontFamily:'inherit'}}, ins.act, h('span',null,'\u2192')))); })),
-      h('div',{style:{fontSize:11.5,color:'var(--core-color-text-muted)',display:'flex',alignItems:'center',gap:7}}, h('span',{style:{color:'var(--core-color-text-disabled)'}},'↳'),'Ask a follow-up — e.g. \u201cwhich businesses link to Stillwater Imports?\u201d or \u201cshow me everything Meridian controls.\u201d'));
+      h('div',{style:{fontSize:11.5,color:'var(--core-color-text-muted)',display:'flex',alignItems:'center',gap:7}}, h('span',{style:{color:'var(--core-color-text-muted)'}},'↳'),'Ask a follow-up, e.g. \u201cwhich businesses link to Stillwater Imports?\u201d or \u201cshow me everything Meridian controls.\u201d'));
   }
   identityAnswer(){ const h=React.createElement;
     const facts=[['Age','7 years · formed 03.12.19'],['Type','C-Corporation · CA'],['Owners','Meridian 60% · Nguyen 15%'],['Standing','Active · good standing']];
@@ -1093,7 +1196,7 @@ export default class App extends React.Component {
       this.midAttrib(),
       h('div',null,
         h('div',{style:{display:'flex',alignItems:'baseline',gap:10,flexWrap:'wrap'}}, h('span',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:26,lineHeight:1.05}},'Vela Logistics, Inc.'), this.pill('Business identity · Watch','watch'), this.pill('Network · Elevated','elev')),
-        h('p',{style:{margin:'9px 0 0',fontSize:13,lineHeight:1.55,color:'var(--core-color-text-secondary)'}},'A 7-year-old California freight carrier in good standing. Clean on its own record — the risk is inherited: an Apr 2026 restructure handed control to a holding company that links, three hops out, to a high-risk entity.')),
+        h('p',{style:{margin:'9px 0 0',fontSize:13,lineHeight:1.55,color:'var(--core-color-text-secondary)'}},'A 7-year-old California freight carrier in good standing. Clean on its own record. The risk is inherited: an Apr 2026 restructure handed control to a holding company that links, three hops out, to a high-risk entity.')),
       h('div',{style:{display:'grid',gridTemplateColumns:'repeat(2, 1fr)',gap:'9px 20px'}}, ...facts.map(([k,v],i)=>
         h('div',{key:i,style:{display:'flex',flexDirection:'column',gap:2}}, this.mono(k,{color:'var(--core-color-text-muted)'}), h('span',{style:{fontSize:13,color:'var(--core-color-text-primary)'}},v)))),
       h('div',null, this.mono('What to watch',{color:'var(--core-color-text-muted)',display:'block',marginBottom:9}),
@@ -1117,9 +1220,9 @@ export default class App extends React.Component {
     }
     const Q=this.queries[key]; const g=this.bIntel(key);
     const ranked=Q.conns.slice().sort((a,b)=>({strong:3,moderate:2,weak:1}[b.strength]-{strong:3,moderate:2,weak:1}[a.strength]));
-    const verdict = key==='officer'?{t:'Act',tone:'elev',txt:'This officer is the path that carries hidden risk — a high-risk entity sits three hops out. Escalate Vela to manual review.'}
+    const verdict = key==='officer'?{t:'Act',tone:'elev',txt:'This officer is the path that carries hidden risk: a high-risk entity sits three hops out. Escalate Vela to manual review.'}
       : key==='ubo'?{t:'Monitor',tone:'watch',txt:'Common control spans 2 active businesses. Extend the same monitoring policy to both.'}
-      : {t:'Note',tone:'low',txt:'A shared commercial address — weak on its own. Record for context; no action needed.'};
+      : {t:'Note',tone:'low',txt:'A shared commercial address is a weak signal on its own. Record for context; no action needed.'};
     const vc=this.RISK[verdict.tone].c;
     return h('div',{style:{background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',borderRadius:'var(--core-radius-card)',borderTopLeftRadius:4,padding:'20px 22px',maxWidth:760,display:'flex',flexDirection:'column',gap:16}},
       this.midAttrib(),
@@ -1154,24 +1257,21 @@ export default class App extends React.Component {
     const send=()=>{ this.setState({srcOpen:false,agOpen:false,chatAttach:null}); if(this._chatTa) this._chatTa.style.height='auto'; this.askIntel(this.state.chatInput); };
     // Dropdown menu + trigger, shared by Sources and Agents. Sits under its
     // button; flips upward when the composer is docked at the viewport bottom.
-    const dropUp=(this.state.chat||[]).length>0;
+    const dropUp=((this.activeChatObj||{msgs:[]}).msgs).length>0;
     const flyup=(title,groups,openKey,offKey,icon)=>{
       const open=!!this.state[openKey]; const off=this.state[offKey]||{};
       const all=groups.flatMap(g=>g.items);
       const onCount=all.filter(s=>!off[s]).length; const items=all;
-      const row=(s)=>h('button',{key:s,className:'app-menu-item',onClick:()=>this.setState({[offKey]:{...off,[s]:!off[s]}})},
-        h('span',{style:{display:'grid',placeItems:'center',width:16,height:16,flexShrink:0,color:off[s]?'transparent':'var(--core-color-action-quiet-fg)'}},
-          h('svg',{width:14,height:14,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2,strokeLinecap:'round',strokeLinejoin:'round'},h('path',{d:'M20 6 9 17l-5-5'}))),
-        h('span',{style:{flex:1,color:off[s]?'var(--core-color-text-muted)':'var(--core-color-text-primary)'}},s));
-      const menu=open?h('div',{style:{position:'absolute',...(dropUp?{bottom:'calc(100% + 6px)'}:{top:'calc(100% + 6px)'}),left:0,width:264,maxHeight:'min(400px, 38vh)',overflowY:'auto',zIndex:30,background:'var(--core-color-surface-popover)',border:'1px solid var(--core-color-border-default)',borderRadius:'var(--core-radius-popover)',boxShadow:'var(--core-color-elevation-popover)',padding:6}},
-        ...groups.flatMap((g,gi)=>[
-          g.label?h('div',{key:'l'+gi,style:{padding:(gi?'10px':'6px')+' 8px 4px',fontSize:11,fontWeight:600,letterSpacing:'.02em',textTransform:'uppercase',color:'var(--core-color-text-muted)'}},g.label):null,
-          ...g.items.map(row)])):null;
-      const trigger=h('button',{onClick:()=>this.setState({srcOpen:false,agOpen:false,[openKey]:!open}),'aria-expanded':open,style:{display:'inline-flex',alignItems:'center',gap:6,padding:'5px 10px',border:0,borderRadius:'var(--core-radius-pill)',background:open?'var(--core-color-state-selected-bg)':'transparent',boxShadow:open?'0 0 0 1.5px var(--core-color-focus-ring)':'none',color:open?'var(--core-color-state-selected-fg)':'var(--core-color-text-secondary)',cursor:'pointer',font:'500 12px/1 var(--app-font)',transition:'box-shadow var(--core-duration-fast) var(--core-ease-standard), background-color var(--core-duration-fast) var(--core-ease-standard)'}},
-        self.navIcon(icon,14),title,
-        onCount<items.length?h('span',{style:{fontSize:11,color:'var(--core-color-text-muted)'}},onCount+'/'+items.length):null,
-        h('span',{style:{display:'grid',placeItems:'center'}}, self.navIcon('chevronDown',12)));
-      return h('span',{style:{position:'relative',display:'inline-flex'}}, trigger, menu);
+      return h(Menu,{open,onOpenChange:(o)=>this.setState({[openKey]:o})},
+        h(MenuTrigger,{asChild:true},
+          h('button',{style:{display:'inline-flex',alignItems:'center',gap:6,padding:'5px 10px',border:0,borderRadius:'var(--core-radius-pill)',background:open?'var(--core-color-state-selected-bg)':'transparent',boxShadow:open?'0 0 0 1.5px var(--core-color-focus-ring)':'none',color:open?'var(--core-color-state-selected-fg)':'var(--core-color-text-secondary)',cursor:'pointer',font:'500 12px/1 var(--app-font)',transition:'box-shadow var(--core-duration-fast) var(--core-ease-standard), background-color var(--core-duration-fast) var(--core-ease-standard)'}},
+            self.navIcon(icon,14),title,
+            onCount<items.length?h('span',{style:{fontSize:11,color:'var(--core-color-text-muted)'}},onCount+'/'+items.length):null,
+            h('span',{style:{display:'grid',placeItems:'center'}}, self.navIcon('chevronDown',12)))),
+        h(MenuContent,{side:dropUp?'top':'bottom',align:'start',themeMode:this.state.theme==='dark'?'dark':'light',style:{width:264,maxHeight:'min(400px, 38vh)',overflowY:'auto'}},
+          ...groups.flatMap((g,gi)=>[
+            g.label?h(MenuLabel,{key:'l'+gi,style:{fontSize:11,letterSpacing:'.02em',textTransform:'uppercase',color:'var(--core-color-text-muted)'}},g.label):null,
+            ...g.items.map(s=>h(MenuCheckboxItem,{key:s,checked:!off[s],onCheckedChange:()=>this.setState({[offKey]:{...off,[s]:!off[s]}}),onSelect:(e)=>e.preventDefault()},s))])));
     };
     const sources=flyup('Sources',this.intelSources,'srcOpen','srcOff','layers');
     const agents=flyup('Agents',[{items:this.intelAgents}],'agOpen','agOff','bot');
@@ -1191,11 +1291,11 @@ export default class App extends React.Component {
         h('div',{style:{flex:1}}),
         h('input',{type:'file',accept:'.pdf,.png,.jpg,.jpeg,.csv,.doc,.docx',ref:(el)=>{this._chatFile=el;},style:{display:'none'},
           onChange:(e)=>{ const f=e.target.files&&e.target.files[0]; if(f) this.setState({chatAttach:f.name}); e.target.value=''; }}),
-        h('button',{className:'app-icon-btn',title:'Attach a document',onClick:()=>{ if(this._chatFile) this._chatFile.click(); }}, self.navIcon('paperclip',15)),
-        h('button',{className:'app-send-btn',disabled:!(this.state.chatInput||'').trim(),onClick:send,title:'Send'}, self.navIcon('arrowUp',15))));
+        h(IconActionButton,{variant:'quiet','aria-label':'Attach a document',title:'Attach a document',onClick:()=>{ if(this._chatFile) this._chatFile.click(); }}, self.navIcon('paperclip',15)),
+        h(IconActionButton,{variant:'primary','aria-label':'Send',disabled:!(this.state.chatInput||'').trim(),onClick:send,title:'Send'}, self.navIcon('arrowUp',15))));
   }
 
-  intelChat(){ const h=React.createElement; const chat=this.state.chat||[]; const empty=chat.length===0;
+  intelChat(){ const h=React.createElement; const chat=(this.activeChatObj||{msgs:[]}).msgs; const empty=chat.length===0;
     // Empty state — the ask-first layout: a faint brand watermark with the
     // composer floating in the vertical center; quiet prompt links at the
     // bottom. Once the first entry lands the composer docks to the bottom.
@@ -1221,7 +1321,6 @@ export default class App extends React.Component {
 
   A_intel(){
     const h=React.createElement; const q=this.queries[this.state.query]; const E=this.entities;
-    const qbtn=(label,k)=> h('button',{onClick:()=>this.setS({query:k}),style:{padding:'9px 14px',border:'1px solid '+(this.state.query===k?'var(--core-color-state-selected-border)':'var(--core-color-border-default)'),background:this.state.query===k?'var(--core-color-state-selected-bg)':'var(--core-color-surface-card)',color:this.state.query===k?'var(--core-color-state-selected-fg)':'var(--core-color-text-secondary)',borderRadius:10,cursor:'pointer',fontSize:12.5,transition:'all .18s'}},label);
     const groups=[['strong','Strong connections'],['moderate','Moderate connections'],['weak','Weak connections']];
     return h('div',{style:{padding:'26px 32px 44px',maxWidth:1280,margin:'0 auto',display:'flex',flexDirection:'column',gap:18}},
       // open query bar — type an attribute or attach a document
@@ -1235,9 +1334,9 @@ export default class App extends React.Component {
           h('div',{style:{padding:'4px 0'}}, ...rows.map((c,i)=>{
             const e=E[c.id]; const rc=this.RISK[c.risk].c;
             return h('div',{key:c.id,style:{display:'grid',gridTemplateColumns:'auto 1fr auto auto',gap:16,alignItems:'center',padding:'15px 22px',borderBottom:i<rows.length-1?'1px solid var(--core-color-border-default)':'none',background:c.self?'var(--core-color-state-selected-bg)':'transparent'}},
-              h('span',{style:{width:34,height:34,borderRadius:e.kind==='person'?'50%':9,background:'var(--core-color-surface-canvas)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--app-font-mono)',fontSize:11,color:'var(--core-color-text-secondary)',flexShrink:0}}, e.name.split(' ').slice(0,2).map(w=>w[0]).join('')),
-              h('div',{style:{minWidth:0}}, h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, h('span',{style:{fontSize:14,fontWeight:500}},e.name), c.self?this.pill('This business','low',{fontSize:9}):null),
-                h('div',{style:{fontSize:12,color:'var(--core-color-text-muted)',marginTop:3}}, e.type+' · '+c.ctype+(c.pct?(' · '+c.pct+'%'):'')+' — '+c.ev)),
+              h('span',{style:{width:34,height:34,borderRadius:e.kind==='person'?'50%':9,background:'var(--core-color-surface-canvas)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--app-font)',fontWeight:500,fontSize:11,color:'var(--core-color-text-secondary)',flexShrink:0}}, e.name.split(' ').slice(0,2).map(w=>w[0]).join('')),
+              h('div',{style:{minWidth:0}}, h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, h('span',{style:{fontSize:14,fontWeight:500}},e.name), c.self?this.pill('This business','low'):null),
+                h('div',{style:{fontSize:12,color:'var(--core-color-text-muted)',marginTop:3}}, e.type+' · '+c.ctype+(c.pct?(' · '+c.pct+'%'):'')+' · '+c.ev)),
               this.strengthMeter(c.strength),
               this.pill(this.RISK[c.risk].label,c.risk));
           })));
@@ -1246,18 +1345,18 @@ export default class App extends React.Component {
       h('div',{style:{background:'var(--core-color-surface-card)',color:'var(--core-color-text-primary)',border:'1px solid var(--core-color-border-default)',borderRadius:'var(--core-radius-card)',boxShadow:'var(--core-color-elevation-card)',padding:'22px 26px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:24,flexWrap:'wrap'}},
         h('div',{style:{maxWidth:640}}, this.mono('What to act on',{color:'var(--core-color-text-muted)'}),
           h('div',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:23,lineHeight:1.15,margin:'8px 0 6px',color:'var(--core-color-text-primary)'}},'Risk travels into Vela through ownership it cannot see alone.'),
-          h('p',{style:{margin:0,fontSize:13,color:'var(--core-color-text-secondary)',lineHeight:1.5}},'A high-risk entity — Stillwater Imports — sits three hops out via a shared officer and a common holding company. Switch to the Graph exploration to trace the path.')),
+          h('p',{style:{margin:0,fontSize:13,color:'var(--core-color-text-secondary)',lineHeight:1.5}},'A high-risk entity, Stillwater Imports, sits three hops out via a shared officer and a common holding company. Switch to the Graph exploration to trace the path.')),
         h('button',{onClick:()=>this.setS({direction:'B',view:'intelligence'}),style:{display:'inline-flex',alignItems:'center',gap:10,padding:'8px 8px 8px 16px',minHeight:32,borderRadius:'var(--core-radius-pill)',border:'1px solid var(--core-color-action-secondary-border)',background:'var(--core-color-action-secondary-bg)',color:'var(--core-color-action-secondary-fg)',cursor:'pointer',fontSize:13,fontWeight:500,whiteSpace:'nowrap'}},'Trace in graph',h('span',{style:{width:22,height:22,borderRadius:'var(--core-radius-pill)',background:'var(--core-color-action-primary-bg)',color:'var(--core-color-action-primary-fg)',display:'inline-flex',alignItems:'center',justifyContent:'center'}},'→'))));
   }
   strengthMeter(s){
-    const h=React.createElement; const n={weak:1,moderate:2,strong:3}[s]; const c=s==='strong'?'var(--core-color-interactive-default)':s==='moderate'?'var(--core-color-text-muted)':'var(--core-color-text-disabled)';
+    const h=React.createElement; const n={weak:1,moderate:2,strong:3}[s]; const c=s==='strong'?'var(--core-color-interactive-default)':s==='moderate'?'var(--core-color-text-muted)':'var(--core-color-text-muted)';
     return h('div',{style:{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:5}},
       h('div',{style:{display:'flex',gap:3}}, ...[0,1,2].map(i=>h('span',{key:i,style:{width:18,height:5,borderRadius:3,background:i<n?c:'var(--core-color-border-default)'}}))),
       this.mono(s));
   }
 
   /* ---------- placeholders ---------- */
-  soon(label){ return React.createElement('div',{style:{padding:'80px 32px',textAlign:'center',color:'var(--core-color-text-muted)',fontSize:14}}, label+' — building next'); }
+  soon(label){ return React.createElement('div',{style:{padding:'80px 32px',textAlign:'center',color:'var(--core-color-text-muted)',fontSize:14}}, label+': building next'); }
   /* =====================================================
      DIRECTION B — GRAPH (relationship-first)
   ===================================================== */
@@ -1303,21 +1402,21 @@ export default class App extends React.Component {
       if(hi) eEls.push(h('line',{key:'g'+i,x1,y1,x2,y2,stroke:'var(--risk-high)',strokeWidth:w+6,strokeLinecap:'round',opacity:.16}));
       eEls.push(h('line',{key:'e'+i,x1,y1,x2,y2,stroke:hi?'var(--risk-high)':'var(--core-color-border-default)',strokeWidth:w,strokeLinecap:'round',strokeDasharray:hi?'7 6':(e.strength==='weak'?'2 6':'none'),style:hi?{animation:'mdDash 1s linear infinite'}:null}));
       if(e.dir){ const bx=x2-ux*8,by=y2-uy*8,px=-uy,py=ux,hw=4.5;
-        aEls.push(h('polygon',{key:'a'+i,points:x2+','+y2+' '+(bx+px*hw)+','+(by+py*hw)+' '+(bx-px*hw)+','+(by-py*hw),fill:hi?'var(--risk-high)':'var(--core-color-text-disabled)'})); }
+        aEls.push(h('polygon',{key:'a'+i,points:x2+','+y2+' '+(bx+px*hw)+','+(by+py*hw)+' '+(bx-px*hw)+','+(by-py*hw),fill:hi?'var(--risk-high)':'var(--core-color-text-muted)'})); }
       if(e.type&&e.type.indexOf('Owns')===0){ const mx=(x1+x2)/2,my=(y1+y2)/2,pct=e.type.replace('Owns ','');
-        aEls.push(h('g',{key:'l'+i,transform:'translate('+mx+','+my+')'}, h('rect',{x:-18,y:-9,width:36,height:18,rx:5,fill:'var(--core-color-surface-raised)',stroke:'var(--core-color-border-default)'}), h('text',{x:0,y:3.5,textAnchor:'middle',fontSize:9.5,fontFamily:'var(--app-font-mono)',fill:'var(--core-color-text-secondary)'},pct))); }
+        aEls.push(h('g',{key:'l'+i,transform:'translate('+mx+','+my+')'}, h('rect',{x:-18,y:-9,width:36,height:18,rx:5,fill:'var(--core-color-surface-raised)',stroke:'var(--core-color-border-default)'}), h('text',{x:0,y:3.5,textAnchor:'middle',fontSize:10,fontFamily:'var(--app-font)',fontWeight:500,fill:'var(--core-color-text-secondary)'},pct))); }
     });
     const nEls=nodes.filter(visN).map(n=>{ const m=meta(n); const r=rad(n); const c=this.RISK[m.risk].c; const isSel=sel===n.id;
       const init=m.name.split(' ').slice(0,2).map(w=>w[0]).join('');
       if(n.attr){ return h('g',{key:n.id,transform:'translate('+n.x+','+n.y+')'},
         h('rect',{x:-78,y:-26,width:156,height:52,rx:12,fill:'color-mix(in srgb, var(--core-color-brand-accent) 12%, var(--core-color-surface-raised))',stroke:'var(--core-color-brand-accent)',strokeWidth:1.5}),
-        h('text',{y:-6,textAnchor:'middle',fontSize:9.5,fontFamily:'var(--app-font-mono)',letterSpacing:'.05em',fill:'var(--core-color-brand-accent)'},(m.sub||'Attribute').toUpperCase()),
+        h('text',{y:-6,textAnchor:'middle',fontSize:10,fontFamily:'var(--app-font)',fontWeight:500,letterSpacing:'.05em',fill:'var(--core-color-brand-accent)'},(m.sub||'Attribute').toUpperCase()),
         h('text',{y:13,textAnchor:'middle',fontSize:13,fontFamily:'var(--app-font)',fill:'var(--core-color-text-primary)'},m.name.length>20?m.name.slice(0,19)+'…':m.name)); }
       return h('g',{key:n.id,transform:'translate('+n.x+','+n.y+')',style:{cursor:'pointer'},onClick:()=>this.setS({sel:isSel?null:n.id})},
         isSel?h('circle',{r:r+8,fill:'none',stroke:'var(--core-color-brand-accent)',strokeWidth:2}):null,
         n.center?h('circle',{r:r+6,fill:'none',stroke:'var(--core-color-brand-accent)',strokeWidth:1.5,opacity:.45}):null,
         h('circle',{r,fill:'var(--core-color-surface-raised)',stroke:c,strokeWidth:n.center?2.5:2,strokeDasharray:m.kind==='person'?'3 3':'none'}),
-        h('text',{y:4,textAnchor:'middle',fontSize:n.center?13:11,fontFamily:'var(--app-font-mono)',fill:'var(--core-color-text-primary)'},init),
+        h('text',{y:4,textAnchor:'middle',fontSize:n.center?13:11,fontFamily:'var(--app-font)',fontWeight:500,fill:'var(--core-color-text-primary)'},init),
         h('text',{y:r+15,textAnchor:'middle',fontSize:10.5,fontFamily:'var(--app-font)',fill:isSel?'var(--core-color-text-primary)':'var(--core-color-text-secondary)'},m.name.length>22?m.name.slice(0,20)+'…':m.name));
     });
     return h('svg',{viewBox:opt.viewBox||'0 0 880 560',preserveAspectRatio:'xMidYMid meet',style:{width:'100%',height:'100%',display:'block'}}, ...eEls, ...aEls, ...nEls);
@@ -1365,7 +1464,7 @@ export default class App extends React.Component {
       if(e.dir){ const bx=g.end.x-g.dir2.x*8,by=g.end.y-g.dir2.y*8,px=-g.dir2.y,py=g.dir2.x,hw=4.5;
         eEls.push(h('polygon',{key:'a'+i,points:g.end.x+','+g.end.y+' '+(bx+px*hw)+','+(by+py*hw)+' '+(bx-px*hw)+','+(by-py*hw),fill:hi?'var(--risk-high)':kc,opacity:hi?.95:Math.max(.5,op)})); }
       if(e.type&&e.type.indexOf('Owns')===0&&!hop){ const chipP=g.bend||{x:(A.x+B.x)/2,y:(A.y+B.y)/2}; const pct=e.type.replace('Owns ','');
-        chipEls.push(h('g',{key:'l'+i,transform:'translate('+chipP.x+','+chipP.y+')'}, h('rect',{x:-19,y:-10,width:38,height:20,rx:6,fill:'var(--core-color-surface-card)',stroke:'var(--core-color-border-default)'}), h('text',{x:0,y:4,textAnchor:'middle',fontSize:10.5,fontFamily:'var(--app-font-mono)',fontWeight:600,fill:'var(--core-color-text-secondary)'},pct))); }
+        chipEls.push(h('g',{key:'l'+i,transform:'translate('+chipP.x+','+chipP.y+')'}, h('rect',{x:-19,y:-10,width:38,height:20,rx:6,fill:'var(--core-color-surface-card)',stroke:'var(--core-color-border-default)'}), h('text',{x:0,y:4,textAnchor:'middle',fontSize:10.5,fontFamily:'var(--app-font)',fontWeight:500,fontWeight:600,fill:'var(--core-color-text-secondary)'},pct))); }
     });
     // nodes: mark + nameplate
     const nEls=[]; nodes.filter(visN).forEach(n=>{ const m=meta(n); const t=tier(n); const r=rad(n); const kc=this.KINDCOL(m.kind); const isSel=sel===n.id;
@@ -1380,7 +1479,7 @@ export default class App extends React.Component {
         const tile = isPerson
           ? h('circle',{r,fill:kc})
           : h('rect',{x:-r,y:-r,width:r*2,height:r*2,rx:t==='focus'?9:7,fill:kc});
-        mark = h('g',null, tile, h('text',{y:t==='focus'?6:5.5,textAnchor:'middle',fontSize:t==='focus'?16:14,fontFamily:'var(--app-font-mono)',fontWeight:600,fill:'var(--core-color-text-inverse)'},init));
+        mark = h('g',null, tile, h('text',{y:t==='focus'?6:5.5,textAnchor:'middle',fontSize:t==='focus'?16:14,fontFamily:'var(--app-font)',fontWeight:500,fontWeight:600,fill:'var(--core-color-text-inverse)'},init));
       }
       // nameplate card (skip full card for world unless selected; show ring only otherwise)
       const showCard = t!=='world' || isSel;
@@ -1415,21 +1514,21 @@ export default class App extends React.Component {
   }
 
   pathToggleLight(){ const on=this.state.showPath!==false; const h=React.createElement;
-    return h('button',{onClick:()=>this.setState({showPath:!on}),style:{display:'inline-flex',alignItems:'center',gap:8,padding:'7px 12px',borderRadius:9,border:'1px solid '+(on?'var(--risk-high)':'var(--core-color-border-default)'),background:on?'color-mix(in srgb, var(--risk-high) 8%, var(--core-color-surface-card))':'var(--core-color-surface-card)',color:on?'var(--risk-high)':'var(--core-color-text-muted)',cursor:'pointer',fontFamily:'var(--app-font-mono)',fontSize:10.5,letterSpacing:'.05em',textTransform:'uppercase'}}, h('span',{style:{width:8,height:8,borderRadius:'50%',background:on?'var(--risk-high)':'var(--core-color-border-default)'}}),'Risk path'); }
+    return h('button',{onClick:()=>this.setState({showPath:!on}),style:{display:'inline-flex',alignItems:'center',gap:8,padding:'7px 12px',borderRadius:9,border:'1px solid '+(on?'var(--risk-high)':'var(--core-color-border-default)'),background:on?'color-mix(in srgb, var(--risk-high) 8%, var(--core-color-surface-card))':'var(--core-color-surface-card)',color:on?'var(--risk-high)':'var(--core-color-text-muted)',cursor:'pointer',fontFamily:'var(--app-font)',fontWeight:500,fontSize:10.5,letterSpacing:'.05em',textTransform:'uppercase'}}, h('span',{style:{width:8,height:8,borderRadius:'50%',background:on?'var(--risk-high)':'var(--core-color-border-default)'}}),'Risk path'); }
 
   pathToggle(){ const on=this.state.showPath!==false; const h=React.createElement;
-    return h('button',{onClick:()=>this.setState({showPath:!on}),style:{display:'inline-flex',alignItems:'center',gap:8,padding:'7px 12px',borderRadius:9,border:'1px solid '+(on?'var(--risk-high)':'var(--core-color-border-default)'),background:on?'color-mix(in srgb, var(--risk-high) 18%, var(--core-color-surface-raised))':'transparent',color:on?'var(--risk-elev)':'var(--core-color-text-secondary)',cursor:'pointer',fontFamily:'var(--app-font-mono)',fontSize:10.5,letterSpacing:'.05em',textTransform:'uppercase'}}, h('span',{style:{width:8,height:8,borderRadius:'50%',background:on?'var(--risk-high)':'var(--core-color-border-default)'}}),'Risk path'); }
+    return h('button',{onClick:()=>this.setState({showPath:!on}),style:{display:'inline-flex',alignItems:'center',gap:8,padding:'7px 12px',borderRadius:9,border:'1px solid '+(on?'var(--risk-high)':'var(--core-color-border-default)'),background:on?'color-mix(in srgb, var(--risk-high) 18%, var(--core-color-surface-raised))':'transparent',color:on?'var(--risk-elev)':'var(--core-color-text-secondary)',cursor:'pointer',fontFamily:'var(--app-font)',fontWeight:500,fontSize:10.5,letterSpacing:'.05em',textTransform:'uppercase'}}, h('span',{style:{width:8,height:8,borderRadius:'50%',background:on?'var(--risk-high)':'var(--core-color-border-default)'}}),'Risk path'); }
 
   legendRow(){ const h=React.createElement;
     const swatch=(c,label)=>h('div',{style:{display:'flex',alignItems:'center',gap:7,fontSize:11,color:'var(--core-color-text-secondary)'}}, h('span',{style:{width:9,height:9,borderRadius:'50%',background:c}}),label);
     return h('div',{style:{display:'flex',flexDirection:'column',gap:8}},
       h('div',{style:{display:'flex',flexWrap:'wrap',gap:'8px 14px'}}, swatch('var(--risk-clear)','Clear'), swatch('var(--risk-watch)','Watch'), swatch('var(--risk-elev)','Elevated'), swatch('var(--risk-high)','High')),
       h('div',{style:{display:'flex',gap:16,marginTop:4}},
-        h('div',{style:{display:'flex',alignItems:'center',gap:7,fontSize:11,color:'var(--core-color-text-secondary)'}}, h('span',{style:{width:18,height:3.5,borderRadius:3,background:'var(--core-color-text-disabled)'}}),'Strong'),
-        h('div',{style:{display:'flex',alignItems:'center',gap:7,fontSize:11,color:'var(--core-color-text-secondary)'}}, h('span',{style:{width:18,height:2,borderRadius:3,background:'var(--core-color-text-disabled)'}}),'Weak')),
+        h('div',{style:{display:'flex',alignItems:'center',gap:7,fontSize:11,color:'var(--core-color-text-secondary)'}}, h('span',{style:{width:18,height:3.5,borderRadius:3,background:'var(--core-color-text-muted)'}}),'Strong'),
+        h('div',{style:{display:'flex',alignItems:'center',gap:7,fontSize:11,color:'var(--core-color-text-secondary)'}}, h('span',{style:{width:18,height:2,borderRadius:3,background:'var(--core-color-text-muted)'}}),'Weak')),
       h('div',{style:{display:'flex',gap:16,marginTop:2}},
-        h('div',{style:{display:'flex',alignItems:'center',gap:7,fontSize:11,color:'var(--core-color-text-secondary)'}}, h('svg',{width:16,height:16}, h('circle',{cx:8,cy:8,r:6,fill:'none',stroke:'var(--core-color-text-disabled)',strokeWidth:2})),'Business'),
-        h('div',{style:{display:'flex',alignItems:'center',gap:7,fontSize:11,color:'var(--core-color-text-secondary)'}}, h('svg',{width:16,height:16}, h('circle',{cx:8,cy:8,r:6,fill:'none',stroke:'var(--core-color-text-disabled)',strokeWidth:2,strokeDasharray:'2.5 2.5'})),'Person')));
+        h('div',{style:{display:'flex',alignItems:'center',gap:7,fontSize:11,color:'var(--core-color-text-secondary)'}}, h('svg',{width:16,height:16}, h('circle',{cx:8,cy:8,r:6,fill:'none',stroke:'var(--core-color-text-muted)',strokeWidth:2})),'Business'),
+        h('div',{style:{display:'flex',alignItems:'center',gap:7,fontSize:11,color:'var(--core-color-text-secondary)'}}, h('svg',{width:16,height:16}, h('circle',{cx:8,cy:8,r:6,fill:'none',stroke:'var(--core-color-text-muted)',strokeWidth:2,strokeDasharray:'2.5 2.5'})),'Person')));
   }
 
   bDrawer(nodes,edges,ti){
@@ -1438,7 +1537,7 @@ export default class App extends React.Component {
     if(sel&&E[sel]){ const e=E[sel];
       const rel=edges.filter(x=>(x.a===sel||x.b===sel)&&((ti==null)||(x.since<=ti&&(x.until==null||ti<=x.until))));
       return wrap(
-        h('button',{onClick:()=>this.setS({sel:null}),style:{background:'none',border:0,color:'var(--core-color-text-muted)',cursor:'pointer',fontSize:12,padding:0,marginBottom:14}},'← Overview'),
+        h(ActionButton,{variant:'quiet',onClick:()=>this.setS({sel:null}),style:{marginBottom:14,marginLeft:-8}},'← Overview'),
         this.mono(e.kind==='person'?'Person':'Business',{color:'var(--core-color-text-muted)'}),
         h('div',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:23,lineHeight:1.12,margin:'5px 0 4px'}},e.name),
         h('div',{style:{fontSize:12.5,color:'var(--core-color-text-secondary)',marginBottom:12}},e.type+' · '+e.sub),
@@ -1459,8 +1558,8 @@ export default class App extends React.Component {
         h('div',null, h('div',{style:{fontFamily:'var(--app-font)',fontSize:34,fontWeight:600,lineHeight:1,color:'var(--risk-elev)'}},high), this.mono('high-risk',{color:'var(--core-color-text-muted)'}))),
       (this.state.showPath!==false)?h('div',{style:{padding:'12px 14px',borderRadius:'var(--core-radius-card)',background:'color-mix(in srgb, var(--risk-high) 15%, var(--core-color-surface-raised))',border:'1px solid color-mix(in srgb, var(--risk-high) 38%, var(--core-color-surface-raised))',marginBottom:18}},
         this.mono('Risk path detected',{color:'var(--risk-elev)'}),
-        h('div',{style:{fontSize:12.5,lineHeight:1.55,color:'var(--core-color-text-primary)',marginTop:7}},'A high-risk entity links into Vela through ownership and a shared officer — invisible from this record alone:'),
-        h('div',{style:{fontSize:12,lineHeight:1.7,color:'var(--core-color-text-secondary)',marginTop:8,fontFamily:'var(--app-font-mono)',letterSpacing:'.01em'}},'Stillwater → J. Reyes → Harbor → Okonkwo → Meridian → Vela')):null,
+        h('div',{style:{fontSize:12.5,lineHeight:1.55,color:'var(--core-color-text-primary)',marginTop:7}},'A high-risk entity links into Vela through ownership and a shared officer, invisible from this record alone:'),
+        h('div',{style:{fontSize:12,lineHeight:1.7,color:'var(--core-color-text-secondary)',marginTop:8,fontFamily:'var(--app-font)',fontWeight:500,letterSpacing:'.01em'}},'Stillwater → J. Reyes → Harbor → Okonkwo → Meridian → Vela')):null,
       this.mono('Legend',{color:'var(--core-color-text-muted)'}),
       h('div',{style:{marginTop:10}}, this.legendRow()),
       h('div',{style:{marginTop:18,fontSize:11.5,color:'var(--core-color-text-muted)',lineHeight:1.5}},'Click any node to inspect its relationships. Drag the timeline to watch the network take shape.'));
@@ -1478,7 +1577,7 @@ export default class App extends React.Component {
         h('div',{style:{position:'absolute',inset:0,display:'flex',justifyContent:'space-between'}},
           ...V.map((v,i)=> h('button',{key:i,onClick:()=>this.setS({timeIdx:i}),title:v.title,style:{background:'none',border:0,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:7,padding:0}},
             h('span',{style:{width:i===idx?14:10,height:i===idx?14:10,borderRadius:'50%',background:i<=idx?'var(--core-color-brand-accent)':'var(--core-color-surface-sunken)',border:'2px solid '+(i<=idx?'var(--core-color-brand-accent)':'var(--core-color-border-default)'),transition:'all .2s'}}),
-            h('span',{style:{fontFamily:'var(--app-font-mono)',fontSize:9,letterSpacing:'.02em',color:i===idx?'var(--core-color-text-primary)':'var(--core-color-text-muted)'}},v.date.split(', ')[0])))) ));
+            h('span',{style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.02em',color:i===idx?'var(--core-color-text-primary)':'var(--core-color-text-muted)'}},v.date.split(', ')[0])))) ));
   }
 
   bNetworkOverview(nodes,edges,ti){
@@ -1494,8 +1593,8 @@ export default class App extends React.Component {
         (this.state.showPath!==false)?h('div',{style:{display:'flex',gap:12,alignItems:'flex-start',padding:'14px 16px',borderRadius:'var(--core-radius-card)',background:'color-mix(in srgb, var(--risk-high) 7%, var(--core-color-surface-card))',border:'1px solid color-mix(in srgb, var(--risk-high) 24%, var(--core-color-surface-card))'}},
           h('span',{style:{width:8,height:8,borderRadius:'50%',background:'var(--risk-high)',marginTop:5,flexShrink:0}}),
           h('div',{style:{minWidth:0}}, this.mono('Risk path detected',{color:'var(--risk-high)',display:'block',marginBottom:5}),
-            h('div',{style:{fontSize:13,lineHeight:1.5,color:'var(--core-color-text-secondary)'}},'A high-risk entity links into Vela through ownership and a shared officer — invisible from this record alone.'),
-            h('div',{style:{fontSize:12,lineHeight:1.6,color:'var(--core-color-text-muted)',marginTop:7,fontFamily:'var(--app-font-mono)',letterSpacing:'.01em'}},'Stillwater → J. Reyes → Harbor → Okonkwo → Meridian → Vela'))):null));
+            h('div',{style:{fontSize:13,lineHeight:1.5,color:'var(--core-color-text-secondary)'}},'A high-risk entity links into Vela through ownership and a shared officer, invisible from this record alone.'),
+            h('div',{style:{fontSize:12,lineHeight:1.6,color:'var(--core-color-text-muted)',marginTop:7,fontFamily:'var(--app-font)',fontWeight:500,letterSpacing:'.01em'}},'Stillwater → J. Reyes → Harbor → Okonkwo → Meridian → Vela'))):null));
   }
 
   bEntityList(nodes,edges,ti){
@@ -1506,7 +1605,7 @@ export default class App extends React.Component {
     const grp=(n)=> uboIds[n.id]?'ubo':(E[n.id].kind==='person'?'person':'business');
     const sortFn=(a,b)=>{ if(a.center) return -1; if(b.center) return 1; return (rank[E[b.id].risk]||0)-(rank[E[a.id].risk]||0); };
     const sections=[
-      {key:'ubo',label:'Beneficial owners (UBO)',note:'Controlling owners — who the business answers to'},
+      {key:'ubo',label:'Beneficial owners (UBO)',note:'Controlling owners: who the business answers to'},
       {key:'business',label:'Businesses',note:'Connected business entities'},
       {key:'person',label:'Individuals',note:'Officers and people on record'},
     ].map(s=>({...s,rows:visN.filter(n=>grp(n)===s.key).sort(sortFn)})).filter(s=>s.rows.length);
@@ -1514,14 +1613,14 @@ export default class App extends React.Component {
       const rel=edges.filter(x=>(x.a===n.id||x.b===n.id)&&((ti==null)||(x.since<=ti&&(x.until==null||ti<=x.until)))); const rc=this.RISK[e.risk].c;
       return h('div',{key:n.id,style:{borderBottom:last?'none':'1px solid var(--core-color-border-default)',background:open?'var(--core-color-surface-inset)':(n.center?'var(--core-color-state-selected-bg)':'transparent')}},
         h('button',{onClick:()=>this.setS({sel:open?null:n.id}),style:{display:'grid',gridTemplateColumns:'auto 1fr auto auto',gap:14,alignItems:'center',width:'100%',padding:'14px 22px',border:0,background:'transparent',cursor:'pointer',textAlign:'left',fontFamily:'inherit'}},
-          h('span',{style:{width:36,height:36,borderRadius:e.kind==='person'?'50%':9,background:'var(--core-color-surface-canvas)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--app-font-mono)',fontSize:11,color:'var(--core-color-text-secondary)',flexShrink:0}}, e.name.split(' ').slice(0,2).map(w=>w[0]).join('')),
-          h('div',{style:{minWidth:0}}, h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, h('span',{style:{fontSize:14,fontWeight:500}},e.name), n.center?this.pill('This business','low',{fontSize:9}):null),
+          h('span',{style:{width:36,height:36,borderRadius:e.kind==='person'?'50%':9,background:'var(--core-color-surface-canvas)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--app-font)',fontWeight:500,fontSize:11,color:'var(--core-color-text-secondary)',flexShrink:0}}, e.name.split(' ').slice(0,2).map(w=>w[0]).join('')),
+          h('div',{style:{minWidth:0}}, h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, h('span',{style:{fontSize:14,fontWeight:500}},e.name), n.center?this.pill('This business','low'):null),
             h('div',{style:{fontSize:12,color:'var(--core-color-text-muted)',marginTop:3}}, e.type+' · '+e.sub+' · '+rel.length+(rel.length===1?' connection':' connections'))),
           this.pill(this.RISK[e.risk].label,e.risk),
-          h('span',{style:{color:'var(--core-color-text-disabled)',fontSize:12,transform:open?'rotate(180deg)':'none',transition:'transform .2s'}},'⌄')),
+          h('span',{style:{color:'var(--core-color-text-muted)',fontSize:12,transform:open?'rotate(180deg)':'none',transition:'transform .2s'}},'⌄')),
         open?h('div',{style:{padding:'0 22px 16px 72px',display:'flex',flexDirection:'column',gap:9,animation:'mdFade .2s var(--core-ease-standard)'}}, ...rel.map((x,k)=>{ const other=E[x.a===n.id?x.b:x.a]; const xc=this.RISK[x.risk].c;
           return h('div',{key:k,style:{display:'grid',gridTemplateColumns:'1fr auto auto',gap:12,alignItems:'center',padding:'10px 13px',borderRadius:10,border:'1px solid var(--core-color-border-default)'}},
-            h('div',{style:{minWidth:0}}, h('div',{style:{fontSize:13,fontWeight:500}},other?other.name:x.b), h('div',{style:{fontSize:11.5,color:'var(--core-color-text-muted)',marginTop:2}}, x.type+' — '+x.ev)),
+            h('div',{style:{minWidth:0}}, h('div',{style:{fontSize:13,fontWeight:500}},other?other.name:x.b), h('div',{style:{fontSize:11.5,color:'var(--core-color-text-muted)',marginTop:2}}, x.type+' · '+x.ev)),
             this.strengthMeter(x.strength),
             this.pill(this.RISK[x.risk].label,x.risk)); })):null); };
     return this.panel({}, this.panelHead('Entities in this network', this.mono(visN.length+' total · '+sections.length+' types')),
@@ -1547,17 +1646,19 @@ export default class App extends React.Component {
           h('div',{style:{position:'absolute',inset:0,display:'flex',justifyContent:'space-between'}},
             ...V.map((v,i)=> h('button',{key:i,onClick:()=>this.setS({timeIdx:i}),title:v.title,style:{background:'none',border:0,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:8,padding:0}},
               h('span',{style:{width:i===idx?15:11,height:i===idx?15:11,borderRadius:'50%',background:i<=idx?'var(--core-color-tab-indicator)':'var(--core-color-surface-card)',border:'2px solid '+(i<=idx?'var(--core-color-tab-indicator)':'var(--core-color-border-default)'),transition:'all .2s'}}),
-              h('span',{style:{fontFamily:'var(--app-font-mono)',fontSize:9.5,letterSpacing:'.02em',color:i===idx?'var(--core-color-tab-fg-active)':'var(--core-color-text-muted)'}},v.date.split(', ')[0])))))));
+              h('span',{style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.02em',color:i===idx?'var(--core-color-tab-fg-active)':'var(--core-color-text-muted)'}},v.date.split(', ')[0])))))));
   }
 
   bGraphCanvas(nodes,edges,ti){
     const h=React.createElement; const pathMode=this.state.netMode==='path';
-    const seg=(label,mode)=> h('button',{onClick:()=>this.setState({netMode:mode}),style:{padding:'6px 12px',border:0,borderRadius:7,cursor:'pointer',fontSize:12,fontFamily:'inherit',whiteSpace:'nowrap',background:this.state.netMode===mode?'var(--core-color-surface-card)':'transparent',color:this.state.netMode===mode?'var(--core-color-tab-fg-active)':'var(--core-color-text-muted)',boxShadow:this.state.netMode===mode?'var(--core-color-elevation-control)':'none',transition:'all .18s'}},label);
+    const modeSeg=h(SegmentedControl,{size:'sm',value:this.state.netMode,onValueChange:(v)=>this.setState({netMode:v}),'aria-label':'Network view mode'},
+      h(SegmentedControlItem,{value:'graph'},'Graph'),
+      h(SegmentedControlItem,{value:'path'},'Risk path'));
     return h('div',{style:{background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',borderRadius:'var(--core-radius-card)',overflow:'hidden',display:'flex',flexDirection:'column',height:640}},
       h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'15px 22px',borderBottom:'1px solid var(--core-color-border-default)'}},
-        h('div',null, this.mono('Relationship network · transit map',{color:'var(--core-color-text-muted)'}), h('div',{style:{color:'var(--core-color-text-primary)',fontFamily:'var(--app-font)',fontWeight:600,fontSize:21,marginTop:4}}, pathMode?'How risk reaches Vela Logistics':'What shapes Vela Logistics — and what connects to it')),
+        h('div',null, this.mono('Relationship network · transit map',{color:'var(--core-color-text-muted)'}), h('div',{style:{color:'var(--core-color-text-primary)',fontFamily:'var(--app-font)',fontWeight:600,fontSize:21,marginTop:4}}, pathMode?'How risk reaches Vela Logistics':'What shapes Vela Logistics, and what connects to it')),
         h('div',{style:{display:'flex',alignItems:'center',gap:10}},
-          h('div',{style:{display:'inline-flex',background:'var(--core-color-surface-inset)',border:'1px solid var(--core-color-border-default)',borderRadius:9,padding:3,gap:2}}, seg('Graph','graph'), seg('Risk path','path')),
+          modeSeg,
           pathMode?null:this.pathToggleLight())),
       pathMode?this.riskPathBody()
         : h('div',{style:{flex:1,display:'flex',minHeight:0,background:'var(--core-color-surface-card)'}},
@@ -1579,7 +1680,7 @@ export default class App extends React.Component {
     const h=React.createElement; const E=this.entities; const P=this.riskPath;
     const card=(p,i)=>{ const e=E[p.id]; const rc=this.RISK[e.risk].c; const isEnd=i===P.length-1; const isStart=i===0;
       return h('div',{key:'n'+i,style:{display:'flex',alignItems:'center',gap:14,padding:'14px 16px',borderRadius:'var(--core-radius-card)',background:'var(--core-color-surface-raised)',border:'1px solid '+(isEnd||isStart?rc:'var(--core-color-border-default)'),boxShadow:isEnd?'0 0 0 3px color-mix(in srgb, '+rc+' 20%, transparent)':'none'}},
-        h('span',{style:{width:40,height:40,borderRadius:e.kind==='person'?'50%':10,background:'var(--core-color-surface-inverse)',border:'1.5px solid '+rc,borderStyle:e.kind==='person'?'dashed':'solid',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--app-font-mono)',fontSize:12,color:'var(--core-color-text-primary)',flexShrink:0}}, e.name.split(' ').slice(0,2).map(w=>w[0]).join('')),
+        h('span',{style:{width:40,height:40,borderRadius:e.kind==='person'?'50%':10,background:'var(--core-color-surface-inverse)',border:'1.5px solid '+rc,borderStyle:e.kind==='person'?'dashed':'solid',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--app-font)',fontWeight:500,fontSize:12,color:'var(--core-color-text-primary)',flexShrink:0}}, e.name.split(' ').slice(0,2).map(w=>w[0]).join('')),
         h('div',{style:{flex:1,minWidth:0}},
           h('div',{style:{display:'flex',alignItems:'center',gap:9,flexWrap:'wrap'}}, h('span',{style:{fontSize:14.5,fontWeight:500,color:'var(--core-color-text-primary)'}},e.name), isStart?this.mono(p.tag,{color:'var(--core-color-text-muted)'}):null),
           h('div',{style:{fontSize:11.5,color:'var(--core-color-text-muted)',marginTop:2}}, e.type+' · '+e.sub)),
@@ -1590,24 +1691,24 @@ export default class App extends React.Component {
         h('div',{style:{display:'flex',alignItems:'center',gap:8}},
           this.mono(p.kind,{color:c}),
           h('span',{style:{fontSize:12.5,color:'var(--core-color-text-secondary)'}},p.edge),
-          h('span',{style:{fontFamily:'var(--app-font-mono)',fontSize:8.5,letterSpacing:'.04em',textTransform:'uppercase',color:c,border:'1px solid color-mix(in srgb, '+c+' 40%, var(--core-color-surface-raised))',background:'color-mix(in srgb, '+c+' 12%, var(--core-color-surface-raised))',padding:'2px 7px',borderRadius:'var(--core-radius-pill)'}}, this.RISK[p.erisk].label+' carries')));
+          h('span',{style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.04em',textTransform:'uppercase',color:c,border:'1px solid color-mix(in srgb, '+c+' 40%, var(--core-color-surface-raised))',background:'color-mix(in srgb, '+c+' 12%, var(--core-color-surface-raised))',padding:'2px 7px',borderRadius:'var(--core-radius-pill)'}}, this.RISK[p.erisk].label+' carries')));
     };
     const seq=[]; P.forEach((p,i)=>{ if(i>0) seq.push(connector(p,i)); seq.push(card(p,i)); });
     return h('div',{style:{flex:1,minHeight:0,display:'flex'}},
       h('div',{style:{flex:1,minHeight:0,overflowY:'auto',padding:'22px 26px'}},
         h('div',{style:{maxWidth:600,margin:'0 auto'}},
           h('div',{style:{marginBottom:18}}, this.mono('One path · '+(P.length-1)+' hops · all strong links',{color:'var(--core-color-text-muted)'}),
-            h('div',{style:{color:'var(--core-color-text-secondary)',fontSize:13,lineHeight:1.55,marginTop:8}},'A single chain of strong connections carries risk into Vela. Every hop is invisible from the business on its own — this is what the standalone Identity view cannot show.')),
+            h('div',{style:{color:'var(--core-color-text-secondary)',fontSize:13,lineHeight:1.55,marginTop:8}},'A single chain of strong connections carries risk into Vela. Every hop is invisible from the business on its own. This is what the standalone Identity view cannot show.')),
           ...seq)),
       h('div',{style:{width:236,flexShrink:0,borderLeft:'1px solid var(--core-color-border-divider)',padding:'18px 18px',display:'flex',flexDirection:'column',gap:12,overflowY:'auto'}},
         this.mono('At the end of the path',{color:'var(--core-color-text-muted)'}),
         h('div',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:26,lineHeight:1.1,color:'var(--core-color-text-primary)'}},'Stillwater Imports'),
         h('div',{style:{marginTop:2}},this.pill('High risk','high')),
-        h('div',{style:{fontSize:12,color:'var(--core-color-text-secondary)',lineHeight:1.5,marginTop:6}},'Sanctioned-adjacent importer. No direct tie to Vela — reachable only by walking 5 strong links out.'),
+        h('div',{style:{fontSize:12,color:'var(--core-color-text-secondary)',lineHeight:1.5,marginTop:6}},'Sanctioned-adjacent importer. No direct tie to Vela. Reachable only by walking 5 strong links out.'),
         h('div',{style:{height:1,background:'var(--core-color-border-divider)',margin:'6px 0'}}),
         this.mono('Why it matters',{color:'var(--core-color-text-muted)'}),
-        h('div',{style:{fontSize:12,color:'var(--core-color-text-secondary)',lineHeight:1.5}},'Ownership and shared-officer edges are directed and strong — risk propagates along them. A shared address would not.'),
-        h('button',{onClick:()=>this.setState({decisionsOpen:true}),style:{marginTop:'auto',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:8,padding:'8px 16px',minHeight:32,borderRadius:'var(--core-radius-pill)',border:'1px solid var(--core-color-action-primary-border)',background:'var(--core-color-action-primary-bg)',color:'var(--core-color-action-primary-fg)',cursor:'pointer',fontSize:13,fontWeight:500,fontFamily:'inherit'}},'Review pending decision',h('span',null,'→'))));
+        h('div',{style:{fontSize:12,color:'var(--core-color-text-secondary)',lineHeight:1.5}},'Ownership and shared-officer edges are directed and strong, so risk propagates along them. A shared address would not.'),
+        h(ActionButton,{variant:'primary',onClick:()=>this.setState({decisionsOpen:true}),style:{marginTop:'auto'}},'Review pending decision',h('span',null,'→'))));
   }
 
   B_identity(){
@@ -1635,13 +1736,17 @@ export default class App extends React.Component {
   B_intel(){
     const h=React.createElement; const q=this.state.query; const Q=this.queries[q]; const g=this.bIntel();
     const allNodes=[g.center,...g.nodes];
-    const qbtn=(label,k)=> h('button',{onClick:()=>this.setS({query:k,sel:null}),style:{padding:'7px 13px',border:0,borderRadius:8,cursor:'pointer',fontSize:12.5,background:q===k?'var(--core-color-surface-card)':'transparent',color:q===k?'var(--core-color-text-primary)':'var(--core-color-text-secondary)',fontWeight:q===k?600:400,boxShadow:q===k?'var(--core-color-elevation-control)':'none',transition:'all .18s'}},label);
+    // @core SegmentedControl (design-system/core/SegmentedControl.tsx)
+    const querySeg=h(SegmentedControl,{size:'sm',value:q,onValueChange:(v)=>{ if(v) this.setS({query:v,sel:null}); },'aria-label':'Query attribute'},
+      h(SegmentedControlItem,{value:'address'},'Address'),
+      h(SegmentedControlItem,{value:'ubo'},'Owner'),
+      h(SegmentedControlItem,{value:'officer'},'Officer'));
     return h('div',{style:{padding:'22px 28px 28px'}},
       h('div',{className:'core-theme','data-theme':'dark',style:{background:'var(--core-color-surface-card)',borderRadius:'var(--core-radius-card)',overflow:'hidden',display:'flex',flexDirection:'column',height:'calc(100vh - 116px)',minHeight:600}},
         h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'15px 22px',borderBottom:'1px solid var(--core-color-border-divider)',flexWrap:'wrap'}},
           h('div',null, this.mono('Intelligence · Start from a data attribute',{color:'var(--core-color-text-muted)'}),
             h('div',{style:{color:'var(--core-color-text-primary)',fontFamily:'var(--app-font)',fontWeight:600,fontSize:21,marginTop:4}},'What businesses share this '+Q.attr.toLowerCase()+'?')),
-          h('div',{style:{display:'inline-flex',background:'var(--core-color-surface-raised)',border:'1px solid var(--core-color-border-default)',borderRadius:10,padding:3,gap:2}}, qbtn('Address','address'), qbtn('Owner','ubo'), qbtn('Officer','officer'))),
+          querySeg),
         h('div',{style:{flex:1,display:'flex',minHeight:0}},
           h('div',{style:{flex:1,minHeight:0,padding:'8px 8px 8px'}}, this.graphCanvas(allNodes,g.edges,{timeIdx:null,showPath:this.state.showPath!==false})),
           this.bIntelDrawer(Q,g))));
@@ -1661,9 +1766,9 @@ export default class App extends React.Component {
           h('div',{style:{fontSize:11,color:'var(--core-color-text-muted)',marginTop:5,lineHeight:1.4}},c.ev)); }),
       h('div',{style:{marginTop:16,padding:'12px 14px',borderRadius:'var(--core-radius-card)',background:'color-mix(in srgb, var(--core-color-brand-accent) 10%, var(--core-color-surface-raised))',border:'1px solid color-mix(in srgb, var(--core-color-brand-accent) 30%, var(--core-color-surface-raised))'}},
         this.mono('What to act on',{color:'var(--core-color-brand-accent)'}),
-        h('div',{style:{fontSize:12.5,lineHeight:1.5,color:'var(--core-color-text-primary)',marginTop:7}}, this.state.query==='officer'?'This officer links Vela to a high-risk entity two hops out. Escalate to manual review.':this.state.query==='ubo'?'Common control across 2 active businesses. Apply the same monitoring policy to both.':'A shared commercial address — weak on its own. No action; note for context.')));
+        h('div',{style:{fontSize:12.5,lineHeight:1.5,color:'var(--core-color-text-primary)',marginTop:7}}, this.state.query==='officer'?'This officer links Vela to a high-risk entity two hops out. Escalate to manual review.':this.state.query==='ubo'?'Common control across 2 active businesses. Apply the same monitoring policy to both.':'A shared commercial address is a weak signal on its own. No action; note for context.')));
   }
-  strengthMeterDark(s){ const h=React.createElement; const n={weak:1,moderate:2,strong:3}[s]; const c=s==='strong'?'var(--core-color-text-primary)':s==='moderate'?'var(--core-color-text-secondary)':'var(--core-color-text-disabled)';
+  strengthMeterDark(s){ const h=React.createElement; const n={weak:1,moderate:2,strong:3}[s]; const c=s==='strong'?'var(--core-color-text-primary)':s==='moderate'?'var(--core-color-text-secondary)':'var(--core-color-text-muted)';
     return h('div',{style:{display:'flex',gap:3}}, ...[0,1,2].map(i=>h('span',{key:i,style:{width:14,height:4,borderRadius:2,background:i<n?c:'var(--core-color-border-default)'}}))); }
   /* =====================================================
      DIRECTION C — QUESTIONS (answer-first, scannable)
@@ -1674,19 +1779,48 @@ export default class App extends React.Component {
       this.mono('Business identity risk'),
       h('div',{style:{display:'flex',gap:3}}, ...order.map((t,i)=>{ const c=this.RISK[t].c;
         return h('div',{key:t,style:{flex:1,height:8,borderRadius:3,background:i<=idx?c:'var(--core-color-border-default)',opacity:i<=idx?1:.6}}); })),
-      h('div',{style:{display:'flex',justifyContent:'space-between'}}, this.mono('Clear',{fontSize:9}), h('span',{style:{fontFamily:'var(--app-font-mono)',fontSize:10,letterSpacing:'.05em',textTransform:'uppercase',color:this.RISK[level].c}},this.RISK[level].label)));
+      h('div',{style:{display:'flex',justifyContent:'space-between'}}, this.mono('Clear'), h('span',{style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.05em',textTransform:'uppercase',color:this.RISK[level].c}},this.RISK[level].label)));
   }
   cIdentityHeaderInner(){
     const h=React.createElement; const f=this.facts.filter(([k])=>['TIN','Entity type','Formed','Home state','Status'].includes(k));
     const dissolved=(this.profile.facts.find(x=>x[0]==='Status')||['','Active'])[1].indexOf('Dissolved')>=0;
-    return h('div',{style:{padding:'22px 26px 20px',borderBottom:'1px solid var(--core-color-border-default)',display:'flex',justifyContent:'space-between',gap:28,flexWrap:'wrap',alignItems:'center'}},
-      h('div',{style:{minWidth:240,flex:1}},
-        h('div',{style:{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}},
+    const factsRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'6px 18px',marginTop:12}},
+      ...f.map(([k,v])=> h('span',{key:k,style:{fontSize:12.5,color:'var(--core-color-text-muted)',whiteSpace:'nowrap'}}, k+': ', h('span',{style:{color:'var(--core-color-text-primary)'}},v))));
+    const summary=this.profile.insightSummary?[
+      h('p',{key:'p',style:{margin:'18px 0 0',fontSize:'var(--core-font-size-md)',lineHeight:1.6,color:'var(--core-color-text-primary)',maxWidth:820,textWrap:'pretty'}},this.profile.insightSummary),
+      // recommendation (left) + review status (right), separated from the summary
+      h('div',{key:'d2',style:{height:1,background:'var(--core-color-border-default)',margin:'16px -26px 0'}}),
+      h('div',{key:'rec',style:{margin:'16px 0 0',display:'flex',alignItems:'center',justifyContent:'space-between',gap:16,flexWrap:'wrap'}},
+        this.profile.insightRec?h('div',{style:{flex:1,minWidth:260,display:'flex',flexDirection:'column',gap:5}},
+          this.mono('Policy recommendation',{fontSize:10,color:'var(--core-color-text-muted)'}),
+          h('p',{style:{margin:0,fontSize:13,lineHeight:1.5,fontWeight:500,color:'var(--core-color-text-primary)'}},this.profile.insightRec)):h('span',null),
+        this.reviewDropdown())]:[];
+    return h('div',null,
+      h('div',{style:{padding:'18px 26px 20px'}},
+        h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}},
+          this.mono('Identity'),
+          this.profile.insightSummary?null:this.reviewDropdown()),
+        h('div',{style:{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',marginTop:12}},
           h('h1',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:30,letterSpacing:'-.02em',lineHeight:1,margin:0}},this.nameOf),
           this.pill(dissolved?'Dissolved':'Active',dissolved?'high':'low')),
-        h('div',{style:{display:'flex',flexWrap:'wrap',gap:'6px 18px',marginTop:12}}, ...f.map(([k,v])=>
-          h('span',{key:k,style:{fontSize:12.5,color:'var(--core-color-text-muted)',whiteSpace:'nowrap'}}, k+': ', h('span',{style:{color:'var(--core-color-text-primary)'}},v))))),
-      this.exposureMeter(this.riskAt(this.asOfIdx)));
+        factsRow,
+        ...summary));
+  }
+  reviewDropdown(){
+    const h=React.createElement; const self=this;
+    const OPTS=[{t:'Clear to approve',tone:'clear'},{t:'Review recommended',tone:'watch'},{t:'Manual review',tone:'elev'}];
+    const s=this.policyStats?this.policyStats():{flag:0,review:0};
+    const cur=this.state.reviewStatus || (s.flag?'Manual review':s.review?'Review recommended':'Clear to approve');
+    const tn=this.TONES[(OPTS.find(o=>o.t===cur)||OPTS[2]).tone];
+    return h(Menu,{open:!!this.state.reviewMenu,onOpenChange:(o)=>this.setState({reviewMenu:o})},
+      h(MenuTrigger,{asChild:true},
+        h('button',{style:{display:'inline-flex',alignItems:'center',gap:8,padding:'6px 12px',minHeight:32,borderRadius:'var(--core-radius-pill)',border:'1px solid '+tn.border,background:tn.bg,color:tn.fg,cursor:'pointer',fontFamily:'inherit',fontSize:13,fontWeight:500,whiteSpace:'nowrap',flexShrink:0}},
+          h('span',{style:{width:6,height:6,borderRadius:'50%',background:tn.fg,flexShrink:0}}), cur, this.navIcon('chevronDown',14))),
+      h(MenuContent,{align:'end',themeMode:this.state.theme==='dark'?'dark':'light',style:{minWidth:214}},
+        ...OPTS.map(o=>{ const otn=self.TONES[o.tone];
+          return h(MenuItem,{key:o.t,onSelect:()=>self.setState({reviewStatus:o.t}),style:{justifyContent:'space-between',gap:12,minHeight:34}},
+            h('span',{style:{display:'inline-flex',alignItems:'center',gap:8}}, h('span',{style:{width:6,height:6,borderRadius:'50%',background:otn.fg,flexShrink:0}}), o.t),
+            o.t===cur?h('span',{style:{color:'var(--core-color-text-muted)',fontSize:12}},'✓'):null); })));
   }
   identityTimeMachine(){ const h=React.createElement; const V=this.versions; const idx=this.asOfIdx; const live=this.isLive;
     const line=(()=>{ const W=1040,H=46,cy=18;
@@ -1703,12 +1837,12 @@ export default class App extends React.Component {
         const findCol=rr==='elev'?'var(--risk-high)':rr==='watch'?'var(--risk-watch)':'var(--risk-clear)';
         let fillCol,strokeCol;
         if(on){ if(hasFinding){fillCol=strokeCol=findCol;} else if(isLast&&live){fillCol=strokeCol='var(--risk-clear)';} else {fillCol=strokeCol='var(--core-color-tab-indicator)';} }
-        else { fillCol='var(--core-color-surface-card)'; strokeCol='var(--core-color-text-disabled)'; }
+        else { fillCol='var(--core-color-surface-card)'; strokeCol='var(--core-color-text-muted)'; }
         return h('div',{key:e.i,style:{position:'absolute',left:(cx/W*100)+'%',top:cy,width:s*2,height:s*2,marginLeft:-s,marginTop:-s,transform:'rotate(45deg)',background:fillCol,border:(on?2:1.6)+'px solid '+strokeCol,boxSizing:'border-box',cursor:'pointer',zIndex:3},onMouseEnter:()=>this.setState({itmHover:e.i}),onMouseLeave:()=>this.setState({itmHover:null}),onMouseDown:(ev)=>{ev.stopPropagation(); this.setState({asOf:e.i>=evs.length-1?null:e.i,itmPan:e.t});}},
           !on?h('div',{style:{position:'absolute',left:'50%',top:'50%',width:inS*2,height:inS*2,marginLeft:-inS,marginTop:-inS,background:findCol,pointerEvents:'none'}}):null); });
       const hv=this.state.itmHover;
       const dateSel=live?V[V.length-1].date:V[idx].date; const selRisk=this.riskAt(live?V.length-1:idx); const pickerCol=selRisk==='elev'?'var(--risk-high)':selRisk==='watch'?'var(--risk-watch)':(live?'var(--risk-clear)':'var(--core-color-tab-indicator)');
-      const pillBase={position:'absolute',top:1,fontFamily:'var(--app-font-mono)',fontSize:9.5,letterSpacing:'.03em',padding:'4px 8px',borderRadius:6,whiteSpace:'nowrap',zIndex:5};
+      const pillBase={position:'absolute',top:1,fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.03em',padding:'4px 8px',borderRadius:6,whiteSpace:'nowrap',zIndex:5};
       const anchor=(vx)=>{ const f=vx/W; return f<0.08?'translateX(0)':f>0.92?'translateX(-100%)':'translateX(-50%)'; };
       const clampL=(vx)=>(vx/W*100)+'%';
       const pickerPill=(px>=6&&px<=W-6)?h('div',{key:'pk',style:Object.assign({},pillBase,{left:clampL(px),transform:anchor(px),background:pickerCol,color:'var(--core-color-text-inverse)',cursor:'ew-resize',boxShadow:'var(--core-color-elevation-raised)'}),onMouseDown:(ev)=>{ev.stopPropagation();this.itmScrub(ev,t0,span,evs);}},dateSel):null;
@@ -1716,8 +1850,8 @@ export default class App extends React.Component {
       const yr0=new Date(t0).getFullYear(), yr1=new Date(t1).getFullYear(); const yticks=[];
       const stepY=Math.max(1,Math.ceil((yr1-yr0)/6)); for(let y=Math.ceil(yr0/stepY)*stepY;y<=yr1;y+=stepY){ const tx=x(new Date(y,0,1).getTime()); if(tx>12&&tx<W-12) yticks.push(h('div',{key:'y'+y},
         h('div',{style:{position:'absolute',left:(tx/W*100)+'%',top:cy-11,width:1,height:22,background:'var(--core-color-border-default)'}}),
-        h('div',{style:{position:'absolute',left:(tx/W*100)+'%',top:cy+14,transform:'translateX(-50%)',fontFamily:'var(--app-font-mono)',fontSize:10,letterSpacing:'.03em',color:'var(--core-color-text-disabled)',whiteSpace:'nowrap'}},y))); }
-      const zb=(g,fn)=>h('button',{onClick:fn,style:{minWidth:24,height:22,padding:'0 7px',borderRadius:6,border:'1px solid var(--core-color-border-default)',background:'var(--core-color-surface-card)',cursor:'pointer',fontFamily:'var(--app-font-mono)',fontSize:11,color:'var(--core-color-text-primary)',lineHeight:1}},g);
+        h('div',{style:{position:'absolute',left:(tx/W*100)+'%',top:cy+14,transform:'translateX(-50%)',fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.03em',color:'var(--core-color-text-muted)',whiteSpace:'nowrap'}},y))); }
+      const zb=(g,fn)=>h('button',{onClick:fn,style:{minWidth:24,height:22,padding:'0 7px',borderRadius:6,border:'1px solid var(--core-color-border-default)',background:'var(--core-color-surface-card)',cursor:'pointer',fontFamily:'var(--app-font)',fontWeight:500,fontSize:11,color:'var(--core-color-text-primary)',lineHeight:1}},g);
       return h('div',{style:{position:'relative',userSelect:'none',paddingTop:26}},
         pickerPill, hoverPill,
         h('div',{style:{position:'relative',height:H,cursor:'grab'},onMouseDown:(ev)=>this.itmPanStart(ev,center,winSpan)},
@@ -1731,15 +1865,15 @@ export default class App extends React.Component {
       this.cIdentityHeaderInner(),
       h('div',{style:{padding:'15px 22px 10px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:16,flexWrap:'wrap'}},
         h('div',{style:{display:'flex',alignItems:'center',gap:12}},
-          h('span',{style:{display:'inline-flex',alignItems:'center',gap:7,fontFamily:'var(--app-font-mono)',fontSize:10,letterSpacing:'.05em',textTransform:'uppercase',color:live?'var(--risk-clear)':'var(--core-color-interactive-active)'}}, h('span',{style:{width:7,height:7,borderRadius:'50%',background:live?'var(--risk-clear)':'var(--core-color-interactive-active)'}}), live?'Latest':'Time travel'),
-          h('span',{style:{fontFamily:'var(--app-font-mono)',fontSize:10,letterSpacing:'.05em',textTransform:'uppercase',color:'var(--core-color-text-disabled)',whiteSpace:'nowrap'}}, V.length+' updates on record')),
+          h('span',{style:{display:'inline-flex',alignItems:'center',gap:7,fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.05em',textTransform:'uppercase',color:live?'var(--risk-clear)':'var(--core-color-interactive-active)'}}, h('span',{style:{width:7,height:7,borderRadius:'50%',background:live?'var(--risk-clear)':'var(--core-color-interactive-active)'}}), live?'Latest':'Time travel'),
+          h('span',{style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.05em',textTransform:'uppercase',color:'var(--core-color-text-muted)',whiteSpace:'nowrap'}}, V.length+' updates on record')),
         this.timeStepper(idx,V,live)),
       h('div',{style:{padding:'0 22px 12px',fontSize:14,color:'var(--core-color-text-primary)'}}, live?'As of latest update · '+V[idx].date : 'Viewing as of '+V[idx].date+' · '+V[idx].title),
       h('div',{style:{padding:'0 22px '+(live?'40px':'40px')}}, line),
       live?null:h('div',{style:{display:'flex',alignItems:'center',gap:10,margin:'0 22px 16px',padding:'11px 14px',borderRadius:'var(--core-radius-card)',background:'color-mix(in srgb, var(--risk-watch) 9%, var(--core-color-surface-card))',border:'1px solid color-mix(in srgb, var(--risk-watch) 24%, var(--core-color-surface-card))'}},
         h('span',{style:{fontSize:14}},'⏱'),
         h('div',{style:{flex:1,minWidth:0,fontSize:12,color:'var(--core-color-text-muted)',lineHeight:1.45}}, h('span',{style:{color:'var(--core-color-text-primary)',fontWeight:500}},'Historical view. '),'Risk profile, answers, and attributes reflect what Middesk knew on '+V[idx].date+'. '+(V.length-1-idx)+' update'+((V.length-1-idx)>1?'s':'')+' have landed since.'),
-        h('button',{onClick:()=>this.setState({asOf:null}),style:{padding:'0 12px',height:30,borderRadius:8,border:'1px solid var(--core-color-border-default)',background:'var(--core-color-surface-card)',cursor:'pointer',fontSize:12.5,color:'var(--core-color-text-primary)',fontFamily:'inherit',whiteSpace:'nowrap',flexShrink:0}},'Back to latest')));
+        h(ActionButton,{variant:'secondary',onClick:()=>this.setState({asOf:null}),style:{flexShrink:0}},'Back to latest')));
   }
   timeStepper(idx,V,live){ const h=React.createElement;
     const selT=live?this.parseDate(V[V.length-1].date):this.parseDate(V[idx].date);
@@ -1759,13 +1893,13 @@ export default class App extends React.Component {
       return h('div',{key:i,onClick:()=>this.setState({expandedQ:open?-1:i}),style:{background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',borderRadius:'var(--core-radius-card)',padding:'18px 20px',cursor:'pointer',transition:'border-color .18s',borderColor:open?c:'var(--core-color-border-default)'}},
         h('div',{style:{display:'flex',justifyContent:'space-between',gap:10,alignItems:'flex-start'}},
           h('div',{style:{fontSize:13.5,color:'var(--core-color-text-muted)',lineHeight:1.35,flex:1}},q.q),
-          h('span',{style:{color:'var(--core-color-text-disabled)',fontSize:12,transform:open?'rotate(180deg)':'none',transition:'transform .2s'}},'⌄')),
+          h('span',{style:{color:'var(--core-color-text-muted)',fontSize:12,transform:open?'rotate(180deg)':'none',transition:'transform .2s'}},'⌄')),
         h('div',{style:{display:'flex',alignItems:'center',gap:10,margin:'10px 0 0'}},
           h('span',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:25,lineHeight:1,color:'var(--core-color-text-primary)'}},q.a),
           h('span',{style:{width:8,height:8,borderRadius:'50%',background:c}})),
         open?h('div',{style:{marginTop:12,animation:'mdFade .25s var(--core-ease-standard)'}},
           h('p',{style:{margin:'0 0 10px',fontSize:12.5,lineHeight:1.55,color:'var(--core-color-text-secondary)'}},q.insight),
-          h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}}, ...q.ev.map(e=>h('span',{key:e,style:{fontFamily:'var(--app-font-mono)',fontSize:9.5,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-muted)',background:'var(--core-color-surface-canvas)',padding:'4px 8px',borderRadius:6}},e)))):null);
+          h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}}, ...q.ev.map(e=>h('span',{key:e,style:{fontFamily:'var(--app-font)',fontWeight:500,fontSize:10,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--core-color-text-muted)',background:'var(--core-color-surface-canvas)',padding:'4px 8px',borderRadius:6}},e)))):null);
     }));
   }
   changesFeed(){
@@ -1775,16 +1909,17 @@ export default class App extends React.Component {
         return h('div',{key:i,style:{display:'flex',gap:14,padding:'14px 0',borderBottom:i<meaningful.length-1?'1px solid var(--core-color-border-default)':'none'}},
           h('span',{style:{width:8,height:8,borderRadius:'50%',background:c,marginTop:6,flexShrink:0}}),
           h('div',{style:{flex:1}},
-            h('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}, this.mono(v.date), this.pill(v.weight,wt,{fontSize:9})),
+            h('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}, this.mono(v.date), this.pill(v.weight,wt)),
             h('div',{style:{fontSize:14,margin:'5px 0 4px'}},v.title),
-            ...v.changes.map((ch,j)=>h('div',{key:j,style:{fontSize:12,color:'var(--core-color-text-muted)',marginTop:2}}, ch[0]+': ', h('span',{style:{textDecoration:ch[1]==='—'?'none':'line-through',color:'var(--core-color-text-disabled)'}},ch[1]),' → ',h('span',{style:{color:'var(--core-color-text-primary)',fontWeight:500}},ch[2]))),
+            ...v.changes.map((ch,j)=>h('div',{key:j,style:{fontSize:12,color:'var(--core-color-text-muted)',marginTop:2}}, ch[0]+': ', h('span',{style:{textDecoration:ch[1]==='None'?'none':'line-through',color:'var(--core-color-text-muted)'}},ch[1]),' → ',h('span',{style:{color:'var(--core-color-text-primary)',fontWeight:500}},ch[2]))),
             h('div',{style:{fontSize:12,color:c,marginTop:7,lineHeight:1.45}},v.why))); }))
       :h('div',{style:{padding:'22px',fontSize:12.5,color:'var(--core-color-text-muted)'}},'No meaningful changes had occurred yet at this point.'));
   }
   C_identity(){
     const h=React.createElement;
     return h('div',{style:{padding:'26px 32px 44px',maxWidth:1180,margin:'0 auto',display:'flex',flexDirection:'column',gap:18}},
-      this.identityTimeMachine(),
+      // timeline (identityTimeMachine) stashed — header panel only
+      this.panel({overflow:'visible'}, this.cIdentityHeaderInner()),
       this.policyExperience(),
       h('div',{style:{display:'grid',gridTemplateColumns:'1.1fr 1fr',gap:18,alignItems:'start'}},
         this.connectedIdentitiesPanel(),
@@ -1797,7 +1932,7 @@ export default class App extends React.Component {
     const ranked=Q.conns.slice().sort((a,b)=>({strong:3,moderate:2,weak:1}[b.strength]-{strong:3,moderate:2,weak:1}[a.strength]));
     const verdict = q==='officer'?{t:'Act',tone:'elev',txt:'This officer is the path that carries hidden risk. Escalate Vela to manual review.'}
       : q==='ubo'?{t:'Monitor',tone:'watch',txt:'Common control spans 2 active businesses. Extend the same policy to both.'}
-      : {t:'Note',tone:'low',txt:'A shared commercial address — weak on its own. Record for context, no action.'};
+      : {t:'Note',tone:'low',txt:'A shared commercial address is a weak signal on its own. Record for context, no action.'};
     return h('div',{style:{padding:'26px 32px 44px',maxWidth:1180,margin:'0 auto',display:'flex',flexDirection:'column',gap:18}},
       // ask bar
       h('div',{style:{background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',borderRadius:'var(--core-radius-card)',padding:'22px 26px'}},
@@ -1821,8 +1956,8 @@ export default class App extends React.Component {
             h('p',{style:{margin:'10px 0 0',fontSize:13,lineHeight:1.55,color:'var(--core-color-text-secondary)'}},Q.note)),
           h('div',{style:{padding:'6px 24px 12px',flex:1}}, ...ranked.map((c,i)=>{ const e=E[c.id]; const rc=this.RISK[c.risk].c;
             return h('div',{key:c.id,style:{display:'grid',gridTemplateColumns:'1fr auto auto',gap:14,alignItems:'center',padding:'13px 0',borderBottom:i<ranked.length-1?'1px solid var(--core-color-border-default)':'none',background:c.self?'var(--core-color-state-selected-bg)':'transparent'}},
-              h('div',null, h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, h('span',{style:{fontSize:13.5,fontWeight:500}},e?e.name:c.id), c.self?this.pill('This business','low',{fontSize:9}):null),
-                h('div',{style:{fontSize:11.5,color:'var(--core-color-text-muted)',marginTop:3}}, c.ctype+' — '+c.ev)),
+              h('div',null, h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, h('span',{style:{fontSize:13.5,fontWeight:500}},e?e.name:c.id), c.self?this.pill('This business','low'):null),
+                h('div',{style:{fontSize:11.5,color:'var(--core-color-text-muted)',marginTop:3}}, c.ctype+' · '+c.ev)),
               this.strengthMeter(c.strength),
               this.pill(this.RISK[c.risk].label,c.risk)); }))),
         // right: evidence (mini graph) + act on
@@ -1835,49 +1970,81 @@ export default class App extends React.Component {
             h('p',{style:{margin:'10px 0 0',fontSize:14,lineHeight:1.5,color:'var(--core-color-text-primary)'}},verdict.txt)))));
   }
 
+  /* ---------- Report page (ported from the app's Business Report tab) ----------
+     Furnished with a real business record pulled from the Middesk API
+     (report/business.json, KAIROS PHYSIO PLLC). */
+  reportScreen(){
+    const h=React.createElement;
+    const data=reportDataFromBusiness(middeskBusiness,{
+      onViewVerification:()=>this.setS({view:'identity',direction:'C'}),
+      onViewWeb:()=>this.setState({reportTab:'web_presence'}),
+      onViewRisk:()=>this.setS({view:'identity',direction:'B'}),
+    });
+    // Tab bar — @core TabsPrimitive, same tab set as the app's business report
+    // view (BusinessTabs): Report + product tabs, with Orders/Monitoring/History
+    // living in the built-in More menu (overflow='fixed').
+    const tab=this.state.reportTab||'report';
+    const TAB_LABELS={business_verification:'Business verification',web_presence:'Web presence',risk_intelligence:'Risk intelligence',timeline:'Timeline',sources:'Sources',api_response:'API Response',orders:'Orders',monitoring:'Monitoring',history:'History'};
+    const tabBar=h('div',{style:{position:'relative',minWidth:0}},
+      h(Tabs,{value:tab,onValueChange:(v)=>this.setState({reportTab:v})},
+        h(TabsList,null,
+          h(TabsTrigger,{key:'report',value:'report'},'Report'),
+          ...['business_verification','web_presence','risk_intelligence','timeline','sources','api_response'].map(v=>h(TabsTrigger,{key:v,value:v},TAB_LABELS[v])),
+          h(TabsTrigger,{key:'orders',overflow:'fixed',value:'orders'},'Orders',h(TabsCount,null,this.decisions.length)),
+          h(TabsTrigger,{key:'monitoring',overflow:'fixed',value:'monitoring'},'Monitoring'),
+          h(TabsTrigger,{key:'history',overflow:'fixed',value:'history'},'History'))));
+    return h('div',{style:{padding:'26px 32px 44px',maxWidth:1280,margin:'0 auto',display:'flex',flexDirection:'column',gap:18}},
+      h('div',null,
+        this.mono('Business Identity'),
+        h('h1',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:30,letterSpacing:'-.02em',lineHeight:1.2,margin:'8px 0 0'}},middeskBusiness.name)),
+      tabBar,
+      tab==='report'?h(ReportPage,{data})
+        :tab==='business_verification'?h(VerificationPage,{record:middeskBusiness})
+        :tab==='web_presence'?h(WebPresencePage,{data:webPresenceDataFromBusiness(middeskBusiness)})
+        :this.soon(TAB_LABELS[tab]));
+  }
+
   screen(){
     const {direction,view}=this.state;
     if(view==='list') return this.identitiesList();
     if(view==='intelligence') return this.intelChat();
+    if(view==='report') return this.reportScreen();
     if(direction==='A') return this.A_identity();
     if(direction==='B') return this.B_identity();
     return this.C_identity();
   }
   get portfolioList(){ const cur=this.activeId; const meta={
-      vela:{rec:'Manual review',tone:'elev',net:'Elevated',updated:'Apr 21, 2026'},
-      anchor:{rec:'Clear to approve',tone:'clear',net:'Low',updated:'Mar 02, 2026'},
-      harbor:{rec:'Review recommended',tone:'watch',net:'Watch',updated:'Feb 14, 2026'},
-      meridian:{rec:'Review recommended',tone:'watch',net:'Watch',updated:'Apr 21, 2026'},
-      cedar:{rec:'Clear to approve',tone:'clear',net:'Clear',updated:'Jan 09, 2026'},
-      brightpath:{rec:'Clear to approve',tone:'clear',net:'Clear',updated:'Dec 18, 2025'},
-      stillwater:{rec:'Manual review',tone:'high',net:'High',updated:'Apr 19, 2026'},
+      vela:{rec:'Manual review',tone:'elev',net:'Elevated',updated:'Apr 21, 2026, 9:14 AM'},
+      anchor:{rec:'Clear to approve',tone:'clear',net:'Low',updated:'Mar 02, 2026, 11:32 AM'},
+      harbor:{rec:'Review recommended',tone:'watch',net:'Watch',updated:'Feb 14, 2026, 3:45 PM'},
+      meridian:{rec:'Review recommended',tone:'watch',net:'Watch',updated:'Apr 21, 2026, 8:07 AM'},
+      cedar:{rec:'Clear to approve',tone:'clear',net:'Clear',updated:'Jan 09, 2026, 2:26 PM'},
+      brightpath:{rec:'Clear to approve',tone:'clear',net:'Clear',updated:'Dec 18, 2025, 4:02 PM'},
+      stillwater:{rec:'Manual review',tone:'high',net:'High',updated:'Apr 19, 2026, 10:51 AM'},
     };
     const derive=(id)=>{ const p=this.PROFILES[id]; const f=(k)=>(p.facts.find(x=>x[0]===k)||['',''])[1];
-      return {id, name:p.name, type:f('Entity type')||'—', state:f('Home state')||'—', ind:f('Industry')||'—', status:(f('Status')||'Active').indexOf('Dissolved')>=0?'Dissolved':'Active', current:id===cur, ...meta[id]}; };
+      return {id, name:p.name, type:f('Entity type')||'Unknown', state:f('Home state')||'Unknown', ind:f('Industry')||'Unknown', status:(f('Status')||'Active').indexOf('Dissolved')>=0?'Dissolved':'Active', current:id===cur, ...meta[id]}; };
     return ['vela','anchor','harbor','meridian','cedar','brightpath','stillwater'].map(derive); }
   identitiesList(){ const h=React.createElement; const rows=this.portfolioList;
-    const col=(t)=>this.mono(t,{color:'var(--core-color-text-disabled)'});
+    const col=(t)=>this.mono(t,{color:'var(--core-color-text-muted)'});
     return h('div',{style:{padding:'26px 32px 44px',maxWidth:1180,margin:'0 auto',display:'flex',flexDirection:'column',gap:18}},
       h('div',null,
-        this.mono('Workspace · '+rows.length+' identities'),
-        h('h1',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:32,letterSpacing:'-.02em',margin:'8px 0 0'}},'Identities')),
+        h('h1',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:32,letterSpacing:'-.02em',margin:0}},'Identities')),
       this.panel({},
-        h('div',{style:{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 0.8fr',gap:16,padding:'12px 22px',borderBottom:'1px solid var(--core-color-border-default)',background:'var(--core-color-surface-inset)'}},
-          col('Business'), col('Recommendation'), col('Network risk'), col('SoS status'), col('Updated')),
-        ...rows.map((r,i)=>{ const c=this.RISK[r.tone].c; const nc=this.RISK[({High:'high',Elevated:'elev',Watch:'watch',Low:'low',Clear:'clear'})[r.net]||'mute'].c;
-          return h('button',{key:i,onClick:()=>{ this.setState({activeId:r.id, asOf:null, secOpen:{}, openQ:null, attnOnly:false}); this.setS({view:'identity',direction:'C'}); },style:{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 0.8fr',gap:16,alignItems:'center',width:'100%',padding:'15px 22px',border:0,borderBottom:i<rows.length-1?'1px solid var(--core-color-border-default)':'none',background:r.current?'var(--core-color-state-selected-bg)':'var(--core-color-surface-card)',cursor:'pointer',textAlign:'left',fontFamily:'inherit'}},
-            h('div',{style:{display:'flex',alignItems:'center',gap:12,minWidth:0}},
-              h('span',{style:{width:34,height:34,borderRadius:8,background:'var(--core-color-surface-canvas)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--app-font-mono)',fontSize:11,color:'var(--core-color-text-secondary)',flexShrink:0}}, r.name.split(' ').slice(0,2).map(w=>w[0]).join('')),
-              h('div',{style:{minWidth:0}}, h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, h('span',{style:{fontSize:14,fontWeight:500}},r.name), r.current?this.pill('Viewing','low',{fontSize:9}):null), h('div',{style:{fontSize:11.5,color:'var(--core-color-text-muted)',marginTop:2}},r.type+' · '+r.state+' · '+r.ind))),
-            this.pill(r.rec,r.tone),
-            h('span',{style:{display:'inline-flex',alignItems:'center',gap:7,fontSize:12.5,color:'var(--core-color-text-secondary)'}}, h('span',{style:{width:8,height:8,borderRadius:'50%',background:nc}}), r.net),
-            h('span',{style:{fontSize:12.5,color:r.status==='Active'?'var(--core-color-text-secondary)':'var(--risk-high)'}}, r.status),
-            this.mono(r.updated,{color:'var(--core-color-text-muted)'})); })));
+        h('div',{style:{display:'grid',gridTemplateColumns:'1.1fr 2fr 0.9fr 1fr 0.8fr',gap:16,padding:'12px 22px',borderBottom:'1px solid var(--core-color-border-default)',background:'var(--core-color-surface-inset)'}},
+          col('Status'), col('Business'), col('Entity type'), col('Network risk'), col('Updated')),
+        ...rows.map((r,i)=>{ const netTone=({High:'high',Elevated:'elev',Watch:'watch',Low:'low',Clear:'clear'})[r.net]||'mute';
+          return h('button',{key:i,onClick:()=>this.openIdentity(r.id),style:{display:'grid',gridTemplateColumns:'1.1fr 2fr 0.9fr 1fr 0.8fr',gap:16,alignItems:'center',width:'100%',padding:'15px 22px',border:0,borderBottom:i<rows.length-1?'1px solid var(--core-color-border-default)':'none',background:r.current?'var(--core-color-state-selected-bg)':'var(--core-color-surface-card)',cursor:'pointer',textAlign:'left',fontFamily:'inherit'}},
+            h('div',null, this.pill(r.rec,r.tone)),
+            h('div',{style:{minWidth:0}}, h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, h('span',{style:{fontSize:14,fontWeight:500}},r.name), r.current?this.pill('Viewing','low'):null), h('div',{style:{fontSize:11.5,color:'var(--core-color-text-muted)',marginTop:2}},r.state+' · '+r.ind)),
+            h('span',{style:{fontSize:12.5,color:'var(--core-color-text-secondary)'}}, r.type),
+            h('div',null, this.pill(r.net,netTone)),
+            h('span',{style:{fontSize:12.5,color:'var(--core-color-text-muted)'}}, r.updated.replace(', '+new Date().getFullYear(),''))); })));
   }
   app(){
     const h=React.createElement; const {direction,view}=this.state;
     return h('div',{style:{display:'flex',height:'100vh',width:'100%',overflow:'hidden',background:'var(--core-color-surface-canvas)',fontFamily:'var(--app-font)',color:'var(--core-color-text-primary)'}},
-      this.Sidebar(),
+      this.state.navDrawer ? this.Sidebar() : null,
       h('main',{style:{flex:1,display:'flex',flexDirection:'column',minWidth:0}},
         this.Topbar(),
         h('div',{key:direction+view,id:'mid-scroll',style:{flex:1,overflow:'auto',opacity:1}}, this.screen())),

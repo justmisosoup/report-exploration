@@ -12,14 +12,13 @@
 
 @font-face { font-family: 'Suisse Intl'; src: url('./fonts/SuisseIntl-Regular.otf'); font-weight: 400; font-display: swap; }
 @font-face { font-family: 'Suisse Intl'; src: url('./fonts/SuisseIntl-SemiBold.otf'); font-weight: 600; font-display: swap; }
-@font-face { font-family: 'Suisse Intl Mono'; src: url('./fonts/SuisseIntl-Mono.ttf'); font-weight: 400; font-display: swap; }
 
 .core-theme {
-  /* App-semantic slots resolved from core tokens (core has no mono token;
-     the product app loads Suisse Intl Mono for code/data). */
+  /* App-semantic slots resolved from core tokens. The core system has no
+     mono token; micro-labels and data values use the default face at the
+     DS label treatment (uppercase, tracked, weight 500). */
   --app-font: var(--core-font-family-default);
   --app-font-display: var(--core-font-family-display);
-  --app-font-mono: 'Suisse Intl Mono', ui-monospace, 'SF Mono', monospace;
 
   /* Risk ramp — the prototype's five tones mapped onto the core
      risk/materiality ladder (none/low/moderate/high/critical). */
@@ -61,6 +60,12 @@ button { font-family: inherit; }
 .app-composer:focus-within{box-shadow:0 0 0 2px var(--core-color-focus-ring);}
 .app-icon-btn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:var(--core-radius-pill);background:transparent;color:var(--core-color-text-muted);cursor:pointer;transition:background-color var(--core-duration-fast) var(--core-ease-standard);}
 .app-icon-btn:hover{background:var(--core-color-state-hover-bg);color:var(--core-color-text-primary);}
+
+/* Combobox row for the ask-bar suggestion list — the one popover that stays
+   hand-rolled (DS Combobox needs the cmdk stack). Mirrors MenuItem's anatomy
+   without colliding with the real .core-menu-item Tailwind classes. */
+.app-suggest-item{position:relative;display:flex;align-items:center;gap:12px;width:100%;min-height:32px;padding:8px 10px;border:0;background:transparent;border-radius:var(--core-radius-control);cursor:pointer;text-align:left;color:var(--core-color-text-primary);font-family:var(--core-font-family-default);transition:background-color var(--core-duration-fast) var(--core-ease-standard);}
+.app-suggest-item:hover{background:var(--core-color-state-hover-bg);}
 .app-send-btn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:1px solid var(--core-color-action-primary-border);border-radius:var(--core-radius-pill);background:var(--core-color-action-primary-bg);color:var(--core-color-action-primary-fg);cursor:pointer;transition:background-color var(--core-duration-fast) var(--core-ease-standard);}
 .app-send-btn:hover{background:var(--core-color-action-primary-hover-bg);}
 .app-send-btn:disabled{background:var(--core-color-action-primary-disabled-bg);border-color:var(--core-color-action-primary-disabled-bg);color:var(--core-color-action-primary-disabled-fg);cursor:not-allowed;}

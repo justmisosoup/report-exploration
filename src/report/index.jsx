@@ -56,7 +56,17 @@ const SummarySections = styled.div`
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 4px 22px 24px;
+  padding: 0 22px 24px;
+`
+
+// Inline heading in the summary card: bold default-size title.
+const SectionHeadTitle = styled.span`
+  align-items: center;
+  color: var(--core-color-text-primary);
+  display: flex;
+  font-size: ${typography.sizes.medium};
+  font-weight: ${typography.weights.bold};
+  gap: 8px;
 `
 
 const InsightBullet = styled.div`
@@ -68,14 +78,64 @@ const InsightBullet = styled.div`
 `
 
 // Bullet marker: a plain dot, or a status icon when the section is flagged.
+// The icon box matches the text's 1.6 line height so it centers on the first
+// line of the insight.
 const InsightMarker = ({ flag }) =>
   flag ? (
-    <span style={{ marginTop: 3, flexShrink: 0 }}>
+    <span style={{ alignItems: 'center', display: 'inline-flex', flexShrink: 0, height: '1.6em' }}>
       <StatusDot intent={flag} size={14} />
     </span>
   ) : (
     <span aria-hidden='true'>•</span>
   )
+
+// Anchor chip after each insight bullet: names the card that backs the
+// insight and scrolls to it in the grid below on click.
+const AnchorChip = styled.button`
+  align-items: center;
+  background: none;
+  border: 1px solid ${colors.midnightLight2};
+  border-radius: 999px;
+  color: var(--core-color-text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: inherit;
+  font-size: 11px;
+  gap: 4px;
+  line-height: 1;
+  margin-left: 8px;
+  padding: 3px 8px;
+  vertical-align: 2px;
+  white-space: nowrap;
+
+  &:hover {
+    border-color: ${colors.karl};
+    color: var(--core-color-text-primary);
+  }
+`
+
+// Grid cell wrapper: the anchor target the summary chips scroll to; the
+// child card stretches to fill the cell.
+const CardAnchor = styled.div`
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  scroll-margin-top: 16px;
+
+  & > * {
+    flex: 1;
+  }
+`
+
+// Chip labels per card key, matching each card's title.
+const CARD_LABELS = {
+  reputation: 'Online reputation',
+  industry: 'Industry risk',
+  fraud: 'Transaction laundering & fraud',
+  web: 'Web presence',
+  verification: 'Entity verification',
+  connections: 'Connection risk',
+}
 const MiniHead = styled.div`
   align-items: center;
   display: flex;
@@ -547,9 +607,7 @@ export const ReportPage = ({ data }) => {
               )
             })}
           </Rows>
-          <CardFooter>
-            {footerLink('Learn more', data.onViewVerification)}
-          </CardFooter>
+          <CardFooter>{footerLink('Learn more', data.onViewVerification)}</CardFooter>
         </MiniCard>
     ),
     web: (
@@ -601,14 +659,6 @@ export const ReportPage = ({ data }) => {
             </MiniHead>
             <MiniTitle>{reputation.title}</MiniTitle>
             <MiniBlurb>{reputation.blurb}</MiniBlurb>
-            <VisitsBlock>
-              <VisitsValue>
-                <span style={{ fontSize: 24, lineHeight: 1 }}>{reputation.rating.toFixed(1)}</span>
-                <VisitsLabel style={{ fontSize: typography.sizes.medium, color: colors.karl }}>
-                  Google rating · {reputation.ratingCount} reviews
-                </VisitsLabel>
-              </VisitsValue>
-            </VisitsBlock>
             <Rows>
               {reputation.profiles.map((p) => (
                 <ConnCard key={p.name}>
@@ -639,49 +689,82 @@ export const ReportPage = ({ data }) => {
 
   const sections = data.sections || []
 
+  // Status tone per section, rendered as the insight bullet's icon:
+  // success = check, warning = exclamation, failure = red X.
+  const sectionTones = {
+    reputation: 'success',
+    industry: compliance ? (compliance.status.tag === 'warning' ? 'failure' : compliance.status.tag === 'green' ? 'success' : 'warning') : undefined,
+    fraud: fraud ? (fraud.status.tag === 'warning' ? 'failure' : fraud.status.tag === 'green' ? 'success' : 'warning') : undefined,
+    web: web.status.tag === 'warning' ? 'failure' : web.status.tag === 'green' ? 'success' : 'warning',
+    verification: verificationStatus === 'verified' ? 'success' : verificationStatus ? 'warning' : 'unknown',
+    connections: risk.level === 'high' ? 'failure' : risk.level === 'low' ? 'success' : 'warning',
+  }
+
+  // Clicking a summary chip anchors to the card that backs the insight, with
+  // a brief ring so the eye lands on the right card.
+  const scrollToCard = (key) => {
+    const el = document.getElementById(`report-card-${key}`)
+    if (!el) return
+    // Scroll only the nearest scrollable ancestor. scrollIntoView also
+    // scrolls overflow:hidden ancestors (the app shell), shifting the whole
+    // page up with no scrollbar to bring it back.
+    let sc = el.parentElement
+    while (sc && !(sc.scrollHeight > sc.clientHeight && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement
+    if (sc) {
+      const r = el.getBoundingClientRect()
+      const sr = sc.getBoundingClientRect()
+      sc.scrollTo({ top: sc.scrollTop + (r.top - sr.top) - 16, behavior: 'smooth' })
+    }
+    el.animate(
+      [{ boxShadow: `0 0 0 3px ${colors.blue}66` }, { boxShadow: `0 0 0 3px ${colors.blue}00` }],
+      { duration: 1600, easing: 'ease-out' },
+    )
+  }
+
   return (
     <Page>
       <Card>
         <SummaryHead>
-          <CardTitle>Summary</CardTitle>
+          <CardTitle>Report</CardTitle>
           <AiNote>
             <Sparkle size={12} strokeWidth={1.5} />
             AI-generated
           </AiNote>
         </SummaryHead>
-        <SummaryText style={{ paddingTop: 10, whiteSpace: 'pre-line', paddingBottom: sections.length ? 4 : undefined }}>
+        <div style={{ padding: '14px 22px 0' }}>
+          <SectionHeadTitle>Summary</SectionHeadTitle>
+        </div>
+        <SummaryText style={{ paddingTop: 6, whiteSpace: 'pre-line', paddingBottom: sections.some((s) => s.insight) ? 18 : undefined }}>
           {data.summary || 'No summary available.'}
         </SummaryText>
-        {sections.length ? (
+        {sections.some((s) => s.insight) ? (
           <SummarySections>
-            {sections.map((section, i) => (
-              <React.Fragment key={i}>
-                {section.insight ? (
-                  <InsightBullet>
-                    <InsightMarker flag={section.flag} />
-                    <span>{section.insight}</span>
-                  </InsightBullet>
-                ) : null}
-                {section.cards?.some((k) => cardsByKey[k]) ? (
-                  <CardGrid>
-                    {section.cards.map((k) => (
-                      <React.Fragment key={k}>{cardsByKey[k]}</React.Fragment>
-                    ))}
-                  </CardGrid>
-                ) : null}
-              </React.Fragment>
+            {sections.filter((s) => s.insight).map((section, i) => (
+              <InsightBullet key={section.headerKey || i}>
+                {section.noMarker ? null : <InsightMarker flag={section.flag || sectionTones[section.headerKey]} />}
+                <span>
+                  {section.insight}
+                  {(section.cards || []).filter((k) => cardsByKey[k]).map((k) => (
+                    <AnchorChip key={k} type='button' onClick={() => scrollToCard(k)}>
+                      {CARD_LABELS[k] || k}
+                    </AnchorChip>
+                  ))}
+                </span>
+              </InsightBullet>
             ))}
           </SummarySections>
         ) : null}
       </Card>
 
-      {!sections.length ? (
-        <CardGrid>
-          {Object.entries(cardsByKey).map(([k, card]) => (
-            <React.Fragment key={k}>{card}</React.Fragment>
+      {/* Cards: outside the summary in a two-column grid, in section order.
+          Each card carries its own header (title + status chip) and footer. */}
+      <CardGrid>
+        {(sections.length ? sections.flatMap((s) => s.cards || []) : Object.keys(cardsByKey))
+          .filter((k) => cardsByKey[k])
+          .map((k) => (
+            <CardAnchor key={k} id={`report-card-${k}`}>{cardsByKey[k]}</CardAnchor>
           ))}
-        </CardGrid>
-      ) : null}
+      </CardGrid>
     </Page>
   )
 }

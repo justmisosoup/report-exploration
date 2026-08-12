@@ -1,15 +1,20 @@
 import React from 'react';
+import { ChevronDown, ChevronLeft } from 'lucide-react';
 import {
   MetaChip, RiskSeverityBadge,
   ActionButton, IconActionButton,
   Menu, MenuTrigger, MenuContent, MenuItem, MenuCheckboxItem, MenuLabel, MenuSeparator,
   Avatar, SegmentedControl, SegmentedControlItem,
   Tabs, TabsList, TabsTrigger, TabsCount,
+  PageHeader, PageHeaderBar, PageHeaderTitles, PageHeaderActions,
+  PageHeading, PageBreadcrumb, PageBreadcrumbItem,
 } from './ds.js';
 import ReportPage from './report/index.jsx';
+import ReportPageB from './report/indexB.jsx';
 import VerificationPage from './report/verification.jsx';
 import WebPresencePage from './report/webPresence.jsx';
 import { reportDataFromBusiness, webPresenceDataFromBusiness } from './report/fromMiddesk.js';
+import { reportDataFromBusiness as reportDataFromBusinessB } from './report/fromMiddeskB.js';
 import middeskBusiness from './report/business.json';
 
 /* Identity Intelligence — ported from the Claude Design prototype
@@ -473,7 +478,8 @@ export default class App extends React.Component {
       h('nav',{style:{display:'flex',flexDirection:'column',gap:4,padding:'8px 8px 16px',flex:1,minHeight:0,overflowY:'auto'}},
         item('Intelligence','sparkles', view==='intelligence', ()=>this.newChat()),
         item('Identities','building', view==='list'||view==='identity', ()=>this.setS({view:'list'})),
-        item('Report','fileText', view==='report', ()=>this.setS({view:'report'}))),
+        item('Report A','fileText', view==='report', ()=>this.setS({view:'report'})),
+        item('Report B','fileText', view==='reportB', ()=>this.setS({view:'reportB'}))),
       // footer — account row (mt-auto, border-t divider, p-2) with a popover user menu
       h('div',{style:{marginTop:'auto',borderTop:'1px solid var(--core-color-border-divider)',padding:8,flexShrink:0}},
         (function(self){
@@ -1973,9 +1979,13 @@ export default class App extends React.Component {
   /* ---------- Report page (ported from the app's Business Report tab) ----------
      Furnished with a real business record pulled from the Middesk API
      (report/business.json, KAIROS PHYSIO PLLC). */
-  reportScreen(){
+  reportScreen(variant='A'){
     const h=React.createElement;
-    const data=reportDataFromBusiness(middeskBusiness,{
+    // Report B renders the pre-revision snapshot (indexB/fromMiddeskB) so the
+    // two report treatments can be compared from the side nav.
+    const isB=variant==='B';
+    const Report=isB?ReportPageB:ReportPage;
+    const data=(isB?reportDataFromBusinessB:reportDataFromBusiness)(middeskBusiness,{
       onViewVerification:()=>this.setS({view:'identity',direction:'C'}),
       onViewWeb:()=>this.setState({reportTab:'web_presence'}),
       onViewRisk:()=>this.setS({view:'identity',direction:'B'}),
@@ -1994,11 +2004,32 @@ export default class App extends React.Component {
           h(TabsTrigger,{key:'monitoring',overflow:'fixed',value:'monitoring'},'Monitoring'),
           h(TabsTrigger,{key:'history',overflow:'fixed',value:'history'},'History'))));
     return h('div',{style:{padding:'26px 32px 44px',maxWidth:1280,margin:'0 auto',display:'flex',flexDirection:'column',gap:18}},
-      h('div',null,
-        this.mono('Business Identity'),
-        h('h1',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:30,letterSpacing:'-.02em',lineHeight:1.2,margin:'8px 0 0'}},middeskBusiness.name)),
+      // App business-report chrome: eyebrow breadcrumb + title row with
+      // header actions, from the design system's PageChrome primitives.
+      h(PageHeader,null,
+        // Back link, not a trail: a chevron plus "All businesses" returning to
+        // the list; the business name lives in the heading below.
+        h(PageBreadcrumb,null,
+          h(PageBreadcrumbItem,{asChild:true},
+            h('button',{onClick:()=>this.setS({view:'list'}),style:{display:'inline-flex',alignItems:'center',gap:4,cursor:'pointer'}},
+              h(ChevronLeft,{size:14,strokeWidth:1.5,'aria-hidden':true}),
+              'All businesses'))),
+        h(PageHeaderBar,null,
+          h(PageHeaderTitles,null,
+            h(PageHeading,null,middeskBusiness.name)),
+          // Right cluster from the app's business report: order source link,
+          // assignee dropdown, and the review-status pill.
+          h(PageHeaderActions,{style:{alignSelf:'center',gap:14}},
+            h('a',{href:'#',onClick:(e)=>e.preventDefault(),style:{color:'#0637FF',fontSize:13.5,textDecoration:'none'}},'Ordered by Middesk, Inc.'),
+            h('button',{style:{display:'inline-flex',alignItems:'center',gap:4,fontSize:13.5,color:'var(--core-color-text-secondary)',cursor:'pointer'}},
+              'Assigned to:',
+              h(ChevronDown,{size:14,strokeWidth:1.5,'aria-hidden':true})),
+            h('button',{style:{display:'inline-flex',alignItems:'center',gap:7,fontSize:13,color:'var(--core-color-text-muted)',border:'1px solid var(--core-color-border-default)',borderRadius:999,padding:'7px 13px',cursor:'pointer',background:'var(--core-color-surface-inset)'}},
+              h('span',{style:{width:7,height:7,borderRadius:'50%',background:'var(--core-color-text-muted)',flexShrink:0}}),
+              'Needs Review',
+              h(ChevronDown,{size:13,strokeWidth:1.5,'aria-hidden':true}))))),
       tabBar,
-      tab==='report'?h(ReportPage,{data})
+      tab==='report'?h(Report,{data})
         :tab==='business_verification'?h(VerificationPage,{record:middeskBusiness})
         :tab==='web_presence'?h(WebPresencePage,{data:webPresenceDataFromBusiness(middeskBusiness)})
         :this.soon(TAB_LABELS[tab]));
@@ -2008,7 +2039,8 @@ export default class App extends React.Component {
     const {direction,view}=this.state;
     if(view==='list') return this.identitiesList();
     if(view==='intelligence') return this.intelChat();
-    if(view==='report') return this.reportScreen();
+    if(view==='report') return this.reportScreen('A');
+    if(view==='reportB') return this.reportScreen('B');
     if(direction==='A') return this.A_identity();
     if(direction==='B') return this.B_identity();
     return this.C_identity();
@@ -2047,7 +2079,7 @@ export default class App extends React.Component {
       this.state.navDrawer ? this.Sidebar() : null,
       h('main',{style:{flex:1,display:'flex',flexDirection:'column',minWidth:0}},
         this.Topbar(),
-        h('div',{key:direction+view,id:'mid-scroll',style:{flex:1,overflow:'auto',opacity:1}}, this.screen())),
+        h('div',{key:direction+view,id:'mid-scroll',style:{flex:1,overflow:'auto',opacity:1,position:'relative'}}, this.screen())),
       this.decisionDrawer());
   }
   render(){

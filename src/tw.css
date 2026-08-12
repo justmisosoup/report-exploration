@@ -10,3 +10,14 @@
 @import 'tailwindcss/theme.css' layer(theme);
 @import 'tailwindcss/preflight.css' layer(base);
 @import 'tailwindcss/utilities.css' layer(utilities);
+
+/* The app shell is a fixed 100vh layout; the only scroll surface is the
+   content pane (#mid-scroll). Without this, visually-hidden accessibility
+   spans (Radix AccessibleIcon labels, position:absolute with no positioned
+   ancestor) leak past the pane's clipping and make the window scrollable,
+   so the global nav scrolls with the page. */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}

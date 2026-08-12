@@ -1,3 +1,5 @@
+// Report B: frozen copy of the in-progress report data mapping, paired with
+// indexB.jsx while Report A moves on.
 // Maps a real Middesk API business record (see business.json, pulled from the
 // Middesk API for KAIROS PHYSIO PLLC) into the Report page's data shape.
 // Mirrors the app's Report tab derivations: BV checks from review tasks, risk
@@ -25,11 +27,26 @@ export function reportDataFromBusiness(record, nav = {}) {
   const googleProfile = record.profiles.find((p) => p.type === 'Google')
   const linkedinProfile = record.profiles.find((p) => p.type === 'LinkedIn')
 
-  const summary =
+  // The summary previews each insight section below it. It is a parts list:
+  // strings render as text, { chip } markers render as inline chips that
+  // scroll to that section. Each clause states the section's finding, with
+  // its chip closing the clause like a citation.
+  const summary = [
     'Kairos Physio is a concierge physical therapy and personal training practice at 801 Madison Avenue in Manhattan, ' +
-    'providing orthopedic rehabilitation, strength training, and fitness services delivered one-on-one by a Doctor of ' +
-    'Physical Therapy. It is a legitimate, operating business with a strong online reputation built on consistently ' +
-    'positive patient reviews, clean fraud signals, and only minor anomalies around email security and phone type.'
+      'delivered one-on-one by a Doctor of Physical Therapy. Patients rate it strongly, with reviews naming the treating doctor',
+    { chip: 'reputation' },
+    '. The website is active and professionally built, though nearly all of its traffic originates in Vietnam',
+    { chip: 'web' },
+    '. The practice classifies into a regulated healthcare category that payment processors treat as high risk',
+    { chip: 'industry' },
+    ', and its business phone is a VOIP line, a mild contact-quality flag',
+    { chip: 'fraud' },
+    '. The submitted name does not match state filings',
+    { chip: 'verification' },
+    ', and two businesses share the office address',
+    { chip: 'connections' },
+    '.',
+  ]
 
   // Each summary insight renders as a line with its supporting cards beneath
   // it; card keys map to the card registry in the Report page.
@@ -40,11 +57,6 @@ export function reportDataFromBusiness(record, nav = {}) {
   const visits = record.traffic.monthlyVisits
   const [, prevVisits] = record.traffic.history[record.traffic.history.length - 2]
   const visitsDeltaPct = Math.round(Math.abs((visits - prevVisits) / prevVisits) * 100)
-
-  const webBlurb =
-    `A ${record.website.platform} site on a domain registered in ${record.website.domainCreated.slice(0, 4)}, ` +
-    `drawing about ${visits.toLocaleString()} monthly visits. Traffic dipped ${visitsDeltaPct}% from the prior month, ` +
-    `in the range expected for a single-location clinic.`
 
   // The reputation block leads, directly below the summary text; after it the
   // sections run highest risk first, positives last. Each headerKey maps to a
@@ -62,20 +74,41 @@ export function reportDataFromBusiness(record, nav = {}) {
     },
     {
       headerKey: 'industry',
+      // The classification summary is the regulatory-risk bullet, with the
+      // MCC and NAICS code cards beneath it (same shape as the social profile
+      // cards under the reputation section).
       insight:
-        'The domain lacks SPF and DMARC email security records, and website traffic is concentrated outside the US, both minor anomalies for a local Manhattan practice.',
+        'Kairos classifies as outpatient physical therapy, a regulated healthcare category that payment processors ' +
+        'treat as high risk and that carries state licensure and healthcare compliance obligations. Watchlist ' +
+        'screening is clean and the New York filing is active.',
       cards: ['industry'],
     },
     {
       headerKey: 'fraud',
+      // Combined narrative: what the check screens for plus the one finding,
+      // with the score and phone cards beneath it.
       insight:
+        'Signals the business may process payments for undisclosed third parties or misrepresent what it sells. ' +
         'The business phone is a VOIP line, which is common for small practices using cloud telephony but is a mild contact-quality flag.',
       cards: ['fraud'],
     },
     {
       headerKey: 'web',
-      insight: webBlurb,
-      cards: ['web'],
+      insights: [
+        // Combined narrative: what the site is plus the traffic picture, as
+        // the summary above the visits/platform/domain cards.
+        {
+          text:
+            'The website is active, professionally built, and describes a specific concierge physical therapy practice ' +
+            'at 801 Madison Avenue, New York, NY 10065. ' +
+            `A ${record.website.platform} site on a domain registered in ${record.website.domainCreated.slice(0, 4)}, ` +
+            `drawing about ${visits.toLocaleString()} monthly visits. Traffic dipped ${visitsDeltaPct}% from the prior ` +
+            'month, in the range expected for a single-location clinic.',
+        },
+      ],
+      // Platform and domain age on the top row; monthly visits and the
+      // suspicious domain-traffic origin below.
+      cards: ['webPlatform', 'webDomain', 'webVisits', 'webTraffic'],
     },
     {
       headerKey: 'verification',
@@ -84,9 +117,13 @@ export function reportDataFromBusiness(record, nav = {}) {
     },
     {
       headerKey: 'connections',
+      // Combined narrative: the corroboration bullet plus the connections-found
+      // summary that used to live inside the card.
       insight:
-        'Multiple third-party directory and point-of-interest records independently confirm the same address, phone number, and website, corroborating operational presence.',
-      cards: ['connections'],
+        'Multiple third-party directory and point-of-interest records independently confirm the same address, phone number, and website, corroborating operational presence. ' +
+        `${record.connections.length} connected businesses share the office address: ${connectionNames.join(' and ')}. ` +
+        `With moderate tenant frequency and an unverified name, the record carries ${record.risk.level} risk.`,
+      cards: ['connRisk', 'connections'],
     },
   ]
 
@@ -106,15 +143,32 @@ export function reportDataFromBusiness(record, nav = {}) {
   return {
     summary,
     sections,
+    // Decision verdict shown beneath the summary: approve or reject, with the
+    // signals that drive it.
+    recommendation: {
+      verdict: 'Approve',
+      // The rationale weighs each flagged signal against the policy: the
+      // industry classification is regulated healthcare rather than prohibited
+      // activity, the VOIP line fits the sole-proprietor read, the connections
+      // rest on shared addresses alone, and the filing name is a similar
+      // match rather than a conflicting identity.
+      detail:
+        'Identity and operations are corroborated across independent sources with no disqualifying fraud signals. ' +
+        'The high-risk industry classification reflects regulated healthcare rather than prohibited activity, so it ' +
+        'does not weigh against the policy, though it is worth considering. The VOIP line is consistent with a likely ' +
+        'sole-proprietor practice using cloud telephony rather than a fraud indicator, and the connection findings are ' +
+        `thin, resting on shared addresses alone. The submitted name is a similar match to the state filing (${record.name} ` +
+        `against ${registrationName}), not a conflicting identity. Monitor the offshore traffic concentration.`,
+    },
     verificationChecks,
     identityTitle: 'Name unverified against state filings',
     identityBlurb,
     web: {
       status: { label: 'Moderate', tag: 'inactive' },
-      title: 'Established domain with light traffic',
-      blurb: webBlurb,
-      // Monthly-visits series renders as the card's trend graph; one point per
-      // month, most recent last, straight from the record's traffic history.
+      // The narrative lives in the section insight; the cards carry visits,
+      // platform, and domain age. Monthly-visits series renders as the visits
+      // card's trend graph; one point per month, most recent last, straight
+      // from the record's traffic history.
       visits: {
         current: visits,
         series: record.traffic.history,
@@ -126,6 +180,13 @@ export function reportDataFromBusiness(record, nav = {}) {
       qualityDetail:
         `${Math.round(record.traffic.topCountries[0].share * 100)}% of traffic originates in ` +
         `${record.traffic.topCountries[0].name}, but the business claims to operate from New York City`,
+      // Top two traffic origins for the Domain traffic card, with each
+      // country's slice of the monthly visits.
+      trafficTop: record.traffic.topCountries.slice(0, 2).map((c) => ({
+        name: c.name,
+        sharePct: Math.round(c.share * 100),
+        visits: Math.round(c.share * visits),
+      })),
       platform: record.website.platform,
       platformDetail: record.website.technologies.ecommerce.join(', '),
     },
@@ -156,13 +217,9 @@ export function reportDataFromBusiness(record, nav = {}) {
       status: { label: 'Moderate', tag: 'inactive' },
       level: 'moderate',
       score: 53,
-      title: 'Risky phone number detected',
-      blurb:
-        'Signals the business may process payments for undisclosed third parties or misrepresent what it sells. ' +
-        'The business phone is a VOIP line, a mild contact-quality flag.',
-      // Top-level card focuses on the one detected finding; the clean checks
-      // (domain risk score, WooCommerce storefront, web tracker) live on the
-      // detail view.
+      // The narrative lives in the section insight; the cards carry the score
+      // and the one detected finding. The clean checks (domain risk score,
+      // WooCommerce storefront, web tracker) live on the detail view.
       phone: {
         label: 'Risky phone number',
         finding: 'Detected',
@@ -172,13 +229,6 @@ export function reportDataFromBusiness(record, nav = {}) {
       otherChecks: ['Domain risk', 'WooCommerce storefront'],
     },
     reputation: {
-      status: { label: 'Strong', tag: 'green' },
-      title: 'Positive patient reviews',
-      blurb:
-        `A ${googleProfile.rating.toFixed(1)} Google rating across ${googleProfile.ratingCount} reviews, with patients naming the ` +
-        `treating doctor. The LinkedIn presence is thin, with ${linkedinProfile.followers} followers and no recent posts.`,
-      rating: googleProfile.rating,
-      ratingCount: googleProfile.ratingCount,
       profiles: record.profiles.map((p) => ({
         name: p.type,
         url: p.url,

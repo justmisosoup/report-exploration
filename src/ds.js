@@ -30,3 +30,12 @@ export {
   TabsTrigger,
   TabsCount,
 } from '../design-system/core/TabsPrimitive'
+export {
+  PageHeader,
+  PageHeaderBar,
+  PageHeaderTitles,
+  PageHeaderActions,
+  PageHeading,
+  PageBreadcrumb,
+  PageBreadcrumbItem,
+} from '../design-system/core/PageChrome'

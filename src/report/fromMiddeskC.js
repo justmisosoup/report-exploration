@@ -1,5 +1,5 @@
-// Report B: frozen copy of the in-progress report data mapping, paired with
-// indexB.jsx while Report A moves on.
+// Report C: replica of the Report B data mapping, paired with indexC.jsx as
+// the new iteration branch while Report B stays put for comparison.
 // Maps a real Middesk API business record (see business.json, pulled from the
 // Middesk API for KAIROS PHYSIO PLLC) into the Report page's data shape.
 // Mirrors the app's Report tab derivations: BV checks from review tasks, risk
@@ -34,7 +34,7 @@ export function reportDataFromBusiness(record, nav = {}) {
   // that scroll to that section. Each clause states the section's finding,
   // with its chip closing the clause like a citation.
   const summaryDescription =
-    'Kairos Physio is a concierge physical therapy and personal training practice in Manhattan, ' +
+    'KAIROS PHYSIO PLLC is a concierge physical therapy and personal training practice in Manhattan, ' +
     'delivered one-on-one by a Doctor of Physical Therapy.'
 
   const summaryGroups = [
@@ -163,12 +163,14 @@ export function reportDataFromBusiness(record, nav = {}) {
     summaryDescription,
     summaryGroups,
     sections,
-    // Policy verdict shown above the report: a one-sentence read of the
-    // business, with the verdict seeding the decision control in the panel's
-    // action bar.
+    // Policy verdict shown above the report: a bold one-sentence read of the
+    // business with a muted supporting line, and the verdict seeding the
+    // decision control in the card's footer.
     recommendation: {
       verdict: 'Approve',
-      detail: 'Kairos Physio is a legitimate, actively operating boutique physical therapy practice.',
+      detail: 'A legitimate, actively operating boutique physical therapy practice.',
+      support:
+        'Identity and operations are corroborated across independent sources with no disqualifying fraud signals.',
     },
     verificationChecks,
     identityTitle: 'Name unverified against state filings',

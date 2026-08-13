@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronDown, ChevronLeft } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronLeft, Download, MoreHorizontal, Share } from 'lucide-react';
 import {
   MetaChip, RiskSeverityBadge,
   ActionButton, IconActionButton,
@@ -11,10 +11,15 @@ import {
 } from './ds.js';
 import ReportPage from './report/index.jsx';
 import ReportPageB from './report/indexB.jsx';
+import ReportPageC from './report/indexC.jsx';
 import VerificationPage from './report/verification.jsx';
 import WebPresencePage from './report/webPresence.jsx';
 import { reportDataFromBusiness, webPresenceDataFromBusiness } from './report/fromMiddesk.js';
 import { reportDataFromBusiness as reportDataFromBusinessB } from './report/fromMiddeskB.js';
+import { reportDataFromBusiness as reportDataFromBusinessC } from './report/fromMiddeskC.js';
+import ReportChatPanel from './report/reportChat.jsx';
+import { DecisionMenu } from './report/indexC.jsx';
+import { AttributesPanel, SourcesPanel, ApiResponsePanel } from './report/reportCPanels.jsx';
 import middeskBusiness from './report/business.json';
 
 /* Identity Intelligence — ported from the Claude Design prototype
@@ -479,7 +484,8 @@ export default class App extends React.Component {
         item('Intelligence','sparkles', view==='intelligence', ()=>this.newChat()),
         item('Identities','building', view==='list'||view==='identity', ()=>this.setS({view:'list'})),
         item('Report A','fileText', view==='report', ()=>this.setS({view:'report'})),
-        item('Report B','fileText', view==='reportB', ()=>this.setS({view:'reportB'}))),
+        item('Report B','fileText', view==='reportB', ()=>this.setS({view:'reportB'})),
+        item('Report C','fileText', view==='reportC', ()=>this.setS({view:'reportC'}))),
       // footer — account row (mt-auto, border-t divider, p-2) with a popover user menu
       h('div',{style:{marginTop:'auto',borderTop:'1px solid var(--core-color-border-divider)',padding:8,flexShrink:0}},
         (function(self){
@@ -1981,11 +1987,12 @@ export default class App extends React.Component {
      (report/business.json, KAIROS PHYSIO PLLC). */
   reportScreen(variant='A'){
     const h=React.createElement;
-    // Report B renders the pre-revision snapshot (indexB/fromMiddeskB) so the
-    // two report treatments can be compared from the side nav.
-    const isB=variant==='B';
-    const Report=isB?ReportPageB:ReportPage;
-    const data=(isB?reportDataFromBusinessB:reportDataFromBusiness)(middeskBusiness,{
+    // Report B renders the grouped-summary snapshot (indexB/fromMiddeskB) and
+    // Report C its replica iteration branch (indexC/fromMiddeskC), so the
+    // report treatments can be compared from the side nav.
+    const Report=variant==='C'?ReportPageC:variant==='B'?ReportPageB:ReportPage;
+    const dataFor=variant==='C'?reportDataFromBusinessC:variant==='B'?reportDataFromBusinessB:reportDataFromBusiness;
+    const data=dataFor(middeskBusiness,{
       onViewVerification:()=>this.setS({view:'identity',direction:'C'}),
       onViewWeb:()=>this.setState({reportTab:'web_presence'}),
       onViewRisk:()=>this.setS({view:'identity',direction:'B'}),
@@ -2035,12 +2042,93 @@ export default class App extends React.Component {
         :this.soon(TAB_LABELS[tab]));
   }
 
+  /* ---------- Report C screen: split report + chat layout ----------
+     The report lives in a large rounded panel with its own scroll in the
+     center column (header + reduced tab set above it), with a report-scoped
+     chat rail docked on the right behind a drag-adjustable divider. The
+     #mid-scroll view key remounts this subtree on view change, so the chat
+     conversation is fresh per visit. */
+  reportScreenC(){
+    const h=React.createElement;
+    const data=reportDataFromBusinessC(middeskBusiness,{
+      onViewVerification:()=>this.setS({view:'identity',direction:'C'}),
+      onViewWeb:()=>this.setState({reportTab:'web_presence'}),
+      onViewRisk:()=>this.setS({view:'identity',direction:'B'}),
+    });
+    // Reduced view set for Report C, on its own state key so A/B's reportTab
+    // is untouched. Rendered as a plain button row rather than a tab bar.
+    const tab=this.state.reportCTab||'report';
+    // Static chrome above the card, on the canvas: back arrow + business
+    // name on the left, Share on the right. Never scrolls.
+    const chromeRow=h('div',{style:{display:'flex',alignItems:'center',gap:8,minWidth:0,padding:'14px 4px 12px 0',flexShrink:0}},
+      h(IconActionButton,{variant:'quiet','aria-label':'Back to all businesses',onClick:()=>this.setS({view:'list'})},
+        h(ArrowLeft,{size:16,strokeWidth:1.5,'aria-hidden':true})),
+      h('span',{style:{fontSize:16,fontWeight:700,letterSpacing:'-0.01em',color:'var(--core-color-text-primary)'}},middeskBusiness.name),
+      h('div',{style:{flex:1}}),
+      // Overflow menu (API Response and other secondary views), left of the
+      // decision control.
+      h(Menu,null,
+        h(MenuTrigger,{asChild:true},
+          h(IconActionButton,{variant:'quiet','aria-label':'More views'},
+            h(MoreHorizontal,{size:16,strokeWidth:1.5,'aria-hidden':true}))),
+        h(MenuContent,{align:'end'},
+          h(MenuItem,{onSelect:()=>this.setState({reportCTab:'api_response'})},'API Response'))),
+      // Analyst decision control lives in the static chrome, top right.
+      h(DecisionMenu,{verdict:data.recommendation?.verdict}));
+    // View buttons: on the column, just above the doc panel, with Download
+    // PDF stuck to the far right and a hairline under the row.
+    const viewButtons=h('div',{style:{display:'flex',alignItems:'center',flexWrap:'wrap',gap:6,minWidth:0}},
+      ...[['report','Report'],['attributes','Attributes'],['timeline','Timeline'],['sources','Sources'],['history','History']].map(([v,l])=>
+        h(ActionButton,{key:v,variant:tab===v?'secondary':'quiet',onClick:()=>this.setState({reportCTab:v})},l)),
+      // Document actions pinned to the right end of the row.
+      h('div',{style:{flex:1}}),
+      h(ActionButton,{variant:'secondary'},h(Download,{size:14,strokeWidth:1.5,'aria-hidden':true}),'Download PDF'),
+      h(ActionButton,{variant:'secondary'},h(Share,{size:14,strokeWidth:1.5,'aria-hidden':true}),'Share'));
+    // Center column: the view buttons on the canvas, the recommendation card
+    // outside the doc panel, then the panel itself. The panel opens with the
+    // business header (name + status), then the tab body; it is the
+    // scroller, so anchor chips scroll within it.
+    // Side padding is adaptive: it scales with the column width (so widening
+    // the chat rail tightens the margins) between sane bounds.
+    // Inside the card, the recommendation and view buttons stay sticky while
+    // the report scrolls under them.
+    // The sticky stack spans the card's full width (background and bottom
+    // hairline run edge to edge); its content shares the body's side padding.
+    const stickyTop=h('div',{'data-sticky-top':'',style:{position:'sticky',top:0,zIndex:5,background:'var(--core-color-surface-card)',display:'flex',flexDirection:'column',gap:14,padding:'8px clamp(30px, 9%, 108px) 14px clamp(38px, 11%, 132px)',borderBottom:'1px solid var(--core-color-border-divider)'}},
+      viewButtons);
+    // The white card floats on the canvas grey that also surrounds the chat.
+    // The card is a clipping shell; the scroller lives inside it, inset a
+    // touch from the top so the scrollbar clears the rounded corner.
+    const card=h('div',{style:{flex:1,minHeight:0,display:'flex',flexDirection:'column',background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',borderRadius:16,boxShadow:'var(--core-color-elevation-card)',overflow:'hidden'}},
+      h('div',{style:{flex:1,minHeight:0,overflowY:'auto',marginTop:12,paddingBottom:18}},
+        stickyTop,
+        // Body carries the side padding; the sticky stack above spans the
+        // full card width.
+        h('div',{style:{padding:'10px clamp(30px, 9%, 108px) 56px clamp(38px, 11%, 132px)'}},
+          tab==='report'?h(ReportPageC,{data})
+            :tab==='attributes'?h(AttributesPanel,{record:middeskBusiness})
+            :tab==='sources'?h(SourcesPanel,{record:middeskBusiness})
+            :tab==='api_response'?h(ApiResponsePanel,{record:middeskBusiness})
+            :this.soon(tab==='timeline'?'Timeline':'History'))));
+    // Center region: static chrome on the canvas, the card below it.
+    const centerColumn=h('div',{style:{flex:1,minWidth:0,display:'flex',flexDirection:'column',padding:'0 0 14px 32px'}},
+      chromeRow,
+      card);
+    // position:relative so absolutely-positioned helpers (Radix hidden
+    // spans) anchor inside this clipped root instead of extending the
+    // #mid-scroll scroll height.
+    return h('div',{style:{display:'flex',height:'100%',minHeight:0,overflow:'hidden',alignItems:'stretch',position:'relative'}},
+      centerColumn,
+      h(ReportChatPanel,{business:middeskBusiness}));
+  }
+
   screen(){
     const {direction,view}=this.state;
     if(view==='list') return this.identitiesList();
     if(view==='intelligence') return this.intelChat();
     if(view==='report') return this.reportScreen('A');
     if(view==='reportB') return this.reportScreen('B');
+    if(view==='reportC') return this.reportScreenC();
     if(direction==='A') return this.A_identity();
     if(direction==='B') return this.B_identity();
     return this.C_identity();
@@ -2078,7 +2166,9 @@ export default class App extends React.Component {
     return h('div',{style:{display:'flex',height:'100vh',width:'100%',overflow:'hidden',background:'var(--core-color-surface-canvas)',fontFamily:'var(--app-font)',color:'var(--core-color-text-primary)'}},
       this.state.navDrawer ? this.Sidebar() : null,
       h('main',{style:{flex:1,display:'flex',flexDirection:'column',minWidth:0}},
-        this.Topbar(),
+        // Report C is a chromeless split surface: no Topbar, so the report
+        // panel and chat rail run the full window height.
+        view==='reportC'?null:this.Topbar(),
         h('div',{key:direction+view,id:'mid-scroll',style:{flex:1,overflow:'auto',opacity:1,position:'relative'}}, this.screen())),
       this.decisionDrawer());
   }

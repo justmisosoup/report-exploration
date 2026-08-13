@@ -39,3 +39,9 @@ export {
   PageBreadcrumb,
   PageBreadcrumbItem,
 } from '../design-system/core/PageChrome'
+export {
+  ChatLog,
+  ChatMessage,
+  ChatComposer,
+  ChatSuggestions,
+} from '../design-system/core/Chat'

@@ -1,12 +1,12 @@
-// Report B: frozen copy of the in-progress report revision (cards grouped
-// inside the summary sections), kept for comparison while Report A moves on.
+// Report C: replica of Report B (grouped summary, policy recommendation bar)
+// taken as the new iteration branch while Report B stays put for comparison.
 // Report page — ported from the app repo's
 // src/containers/BusinessHome/Report/index.tsx. Same component tree, styled
 // shells, and @/core primitives (Icon, Link, MetaTag, theme); the app's
 // redux/hooks data plumbing is replaced by a `data` prop computed by the
 // prototype from the active identity profile.
 import React from 'react'
-import { ChevronDown, Sparkle } from 'lucide-react'
+import { ArrowUp, ChevronDown, Sparkle } from 'lucide-react'
 import styled from 'styled-components'
 
 import { ActionButton } from '@/core/Action'
@@ -33,7 +33,6 @@ const SummaryHead = styled.div`
   align-items: center;
   display: flex;
   justify-content: space-between;
-  padding: 18px 22px 0;
 `
 
 const AiNote = styled.span`
@@ -50,7 +49,7 @@ const SummaryBody = styled.div`
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 8px 22px 18px;
+  padding: 8px 0 0;
 `
 
 const SummaryPara = styled.p`
@@ -58,6 +57,45 @@ const SummaryPara = styled.p`
   font-size: ${typography.sizes.medium};
   line-height: 1.6;
   margin: 0;
+`
+
+// Floating return-to-summary affordance: a zero-height sticky dock that
+// pins a pill just under the sticky bar while the summary is out of view.
+const BackToSummaryDock = styled.div`
+  display: flex;
+  height: 0;
+  justify-content: center;
+  position: sticky;
+  z-index: 4;
+`
+
+const BackToSummaryPill = styled.button`
+  align-items: center;
+  background: ${colors.white};
+  border: 1px solid ${colors.midnightLight2};
+  border-radius: 999px;
+  box-shadow: 0 2px 10px rgba(11, 49, 57, 0.14);
+  color: var(--core-color-text-primary);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  gap: 6px;
+  padding: 7px 13px;
+
+  &:hover {
+    background: #f8fafc;
+  }
+`
+
+// Business descriptor: the plain-language read of what the business is,
+// shown above the Summary block at a slightly larger size.
+const Descriptor = styled.p`
+  color: var(--core-color-text-primary);
+  font-size: 16px;
+  line-height: 1.6;
+  margin: 26px 0 0;
 `
 
 const CardGrid = styled.div`
@@ -76,44 +114,40 @@ const MiniCard = styled(Card)`
 const SummarySections = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 22px;
-  padding: 20px 22px 24px;
+  gap: 28px;
+  padding: 20px 0 8px;
 `
 
-// Headed section: header, narrative, and cards grouped tighter than the gap
-// between sections, so the block reads as one unit. A hairline divider
-// separates consecutive insights.
+// Headed section: header, narrative, and inner cards grouped as one unit,
+// sitting bare on the report surface (no card chrome).
 const SectionGroup = styled.div`
   display: flex;
   flex-direction: column;
   gap: 10px;
   scroll-margin-top: 16px;
-
-  & + & {
-    border-top: 1px solid ${colors.midnightLight2};
-    padding-top: 22px;
-  }
 `
 
-// Pinned summary block: the report header, recommendation, and summary stay
-// fixed at the top of the pane while the insight sections scroll under the
-// separator beneath the summary.
+// Analyst summary: treated like the recommendation card up top — a tinted
+// rounded square with no outline.
+// Negative top margin offsets the Page flex gap so the summary sits tight
+// under the recommendation card.
 const SummaryPinned = styled.div`
-  background: ${colors.white};
-  border-bottom: 1px solid ${colors.midnightLight2};
-  border-radius: 10px 10px 0 0;
-  position: sticky;
-  top: 0;
-  z-index: 3;
+  background: #f8fafc;
+  border-radius: 14px;
+  margin-top: -10px;
+  padding: 24px;
 `
 
-// Recommendation: its own tinted card above the Report card, with a small
-// eyebrow header.
+// Shared tint for the AI squares (recommendation, analyst summary): a
+// lighter grey than the theme's dawn.
+const TINT = '#F5F7FA'
+
+// Recommendation: a dark midnight card with white copy, the decision
+// control beside it.
 const RecommendationPanel = styled.div`
-  background: ${colors.dawn};
-  border: 1px solid ${colors.midnightLight2};
-  border-radius: 10px;
-  padding: 14px 22px 16px;
+  background: ${colors.midnightDark2};
+  border-radius: 14px;
+  padding: 24px;
 `
 
 const RecommendationLabel = styled.div`
@@ -128,19 +162,6 @@ const RecommendationLabel = styled.div`
 // Summary title.
 const SummaryGroupLabel = styled(RecommendationLabel)`
   margin-top: 8px;
-`
-
-// Edge-to-edge decision bar under the recommendation copy: a hairline
-// divider spanning the panel's full width, with the decision control pinned
-// to the far right. Negative margins cancel the panel padding so the divider
-// runs edge to edge.
-const RecommendationBar = styled.div`
-  align-items: center;
-  border-top: 1px solid ${colors.midnightLight2};
-  display: flex;
-  justify-content: flex-end;
-  margin: 14px -22px -16px;
-  padding: 10px 22px 12px;
 `
 
 // Inline chip inside the summary text: names an insight section and scrolls
@@ -511,11 +532,52 @@ const footerLink = (label, onNavigate) => (
 //         web: { status: {label, tag}, blurb, rows: [[label, value]] },
 //         risk: { level, score, title, signals: [[label, value]] },
 //         onViewVerification, onViewWeb, onViewRisk }
+// Analyst decision control: seeded by the policy verdict, rendered by the
+// Report C screen at the right end of the view-button row.
+export const DecisionMenu = ({ verdict }) => {
+  const [decision, setDecision] = React.useState(verdict || 'Approve')
+  return (
+    <Menu>
+      <MenuTrigger asChild>
+        <ActionButton variant='primary'>
+          {decision}
+          <ChevronDown size={13} strokeWidth={1.5} aria-hidden='true' />
+        </ActionButton>
+      </MenuTrigger>
+      <MenuContent align='end'>
+        {['Approve', 'Reject', 'Request review'].map((option) => (
+          <MenuItem key={option} onSelect={() => setDecision(option)}>
+            {option}
+          </MenuItem>
+        ))}
+      </MenuContent>
+    </Menu>
+  )
+}
+
+// Policy recommendation card: rendered by the Report C screen above the
+// report window (not inside it).
+export const PolicyRecommendation = ({ recommendation }) => {
+  if (!recommendation) return null
+  return (
+    <RecommendationPanel>
+      <div style={{ fontSize: typography.sizes.medium, fontWeight: typography.weights.bold, color: colors.white, lineHeight: 1.5 }}>
+        {recommendation.detail}
+      </div>
+      {recommendation.support ? (
+        <div style={{ fontSize: typography.sizes.medium, color: 'rgba(255, 255, 255, 0.72)', lineHeight: 1.5, marginTop: 4 }}>
+          {recommendation.support}
+        </div>
+      ) : null}
+      <div style={{ fontSize: typography.sizes.medium, color: 'rgba(255, 255, 255, 0.72)', marginTop: 16 }}>
+        Recommendation <span style={{ color: colors.white, fontWeight: typography.weights.bold }}>{recommendation.verdict}</span>
+      </div>
+    </RecommendationPanel>
+  )
+}
+
 export const ReportPage = ({ data }) => {
   const { web, risk, compliance, reputation, fraud } = data
-  // The analyst's decision, seeded by the policy verdict; picking an option
-  // from the decision menu records it on the button.
-  const [decision, setDecision] = React.useState(data.recommendation?.verdict || 'Approve')
   const verificationStatus = bvVerificationStatus(data.verificationChecks)
   const barColors = miniBarColors(risk.level)
 
@@ -783,11 +845,47 @@ export const ReportPage = ({ data }) => {
 
   const sections = data.sections || []
 
-  // Chip anchors land the section header just below the pinned summary, so
-  // the summary stays readable above it: scroll the pane manually, offset by
-  // the pinned block's height, instead of scrollIntoView (which would tuck
-  // the header underneath the sticky block).
-  const pinnedRef = React.useRef(null)
+  // Return-to-summary pill: shown while the analyst summary is scrolled out
+  // of view, docked just under the screen's sticky top stack.
+  const summaryRef = React.useRef(null)
+  const [showBack, setShowBack] = React.useState(false)
+  const [dockTop, setDockTop] = React.useState(10)
+  React.useEffect(() => {
+    const el = summaryRef.current
+    if (!el) return
+    let pane = el.parentElement
+    while (pane && pane !== document.body) {
+      const s = getComputedStyle(pane)
+      if (/(auto|scroll)/.test(s.overflowY)) break
+      pane = pane.parentElement
+    }
+    if (!pane || pane === document.body) return
+    const sticky = pane.querySelector('[data-sticky-top]')
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setShowBack(!entry.isIntersecting)
+        setDockTop((sticky ? sticky.offsetHeight : 0) + 10)
+      },
+      { root: pane },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+  const scrollToSummary = () => {
+    const el = summaryRef.current
+    if (!el) return
+    let pane = el.parentElement
+    while (pane && pane !== document.body) {
+      const s = getComputedStyle(pane)
+      if (/(auto|scroll)/.test(s.overflowY)) break
+      pane = pane.parentElement
+    }
+    if (pane && pane !== document.body) pane.scrollTo({ top: 0, behavior: 'smooth' })
+    else el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  // Chip anchors land the section card near the top of the scroll pane
+  // (small breathing offset, no sticky block to account for).
   const scrollToSection = (key) => {
     const el = document.getElementById(`report-section-${key}`)
     if (!el) return
@@ -801,8 +899,10 @@ export const ReportPage = ({ data }) => {
       el.scrollIntoView({ behavior: 'smooth', block: 'start' })
       return
     }
-    const pinnedH = pinnedRef.current ? pinnedRef.current.offsetHeight : 0
-    const top = pane.scrollTop + el.getBoundingClientRect().top - pane.getBoundingClientRect().top - pinnedH - 12
+    // Land below the pane's sticky top stack when it has one.
+    const sticky = pane.querySelector('[data-sticky-top]')
+    const stickyH = sticky ? sticky.offsetHeight : 0
+    const top = pane.scrollTop + el.getBoundingClientRect().top - pane.getBoundingClientRect().top - stickyH - 16
     pane.scrollTo({ top, behavior: 'smooth' })
   }
 
@@ -822,54 +922,34 @@ export const ReportPage = ({ data }) => {
 
   return (
     <Page>
-      {data.recommendation ? (
-        <RecommendationPanel>
-          <RecommendationLabel>Policy recommendation</RecommendationLabel>
-          <div style={{ fontSize: typography.sizes.medium, color: 'var(--core-color-text-primary)', lineHeight: 1.5, marginTop: 6 }}>
-            {data.recommendation.detail}
-          </div>
-          <RecommendationBar>
-            <Menu>
-              <MenuTrigger asChild>
-                <ActionButton variant='primary'>
-                  {decision}
-                  <ChevronDown size={13} strokeWidth={1.5} aria-hidden='true' />
-                </ActionButton>
-              </MenuTrigger>
-              <MenuContent align='end'>
-                {['Approve', 'Reject', 'Request review'].map((option) => (
-                  <MenuItem key={option} onSelect={() => setDecision(option)}>
-                    {option}
-                  </MenuItem>
-                ))}
-              </MenuContent>
-            </Menu>
-          </RecommendationBar>
-        </RecommendationPanel>
-      ) : null}
-
-      {/* overflow: visible so the pinned summary can stick to the pane. */}
-      <Card style={{ overflow: 'visible' }}>
-        <SummaryPinned ref={pinnedRef}>
+      {data.summaryDescription ? <Descriptor>{data.summaryDescription}</Descriptor> : null}
+      <div style={{ marginTop: 14 }}>
+        <PolicyRecommendation recommendation={data.recommendation} />
+      </div>
+      <SummaryPinned ref={summaryRef}>
         <SummaryHead>
-          <SectionHeadTitle>
-            Summary
-            <Sparkle size={13} strokeWidth={1.5} style={{ color: 'var(--core-color-text-muted)' }} />
-          </SectionHeadTitle>
-          <AiNote>AI-generated</AiNote>
+          <SectionHeadTitle>Analyst Summary</SectionHeadTitle>
+          <AiNote>
+            <Sparkle size={12} strokeWidth={1.5} />
+            AI-generated
+          </AiNote>
         </SummaryHead>
         <SummaryBody>
-          {data.summaryDescription ? <SummaryPara>{data.summaryDescription}</SummaryPara> : null}
           {(data.summaryGroups || []).map((group) => (
-            <React.Fragment key={group.key}>
-              <SummaryGroupLabel>{group.title}</SummaryGroupLabel>
-              <SummaryPara>{renderSummaryParts(group.parts)}</SummaryPara>
-            </React.Fragment>
+            <SummaryPara key={group.key}>{renderSummaryParts(group.parts)}</SummaryPara>
           ))}
         </SummaryBody>
-        </SummaryPinned>
-        {sections.length ? (
-          <SummarySections>
+      </SummaryPinned>
+      {showBack ? (
+        <BackToSummaryDock style={{ top: dockTop }}>
+          <BackToSummaryPill type='button' onClick={scrollToSummary}>
+            <ArrowUp size={12} strokeWidth={1.5} aria-hidden='true' />
+            Analyst summary
+          </BackToSummaryPill>
+        </BackToSummaryDock>
+      ) : null}
+      {sections.length ? (
+        <SummarySections>
             {sections.map((section, i) => {
               const head = section.headerKey ? sectionHeads[section.headerKey] : null
               // A section carries either one insight string or an insights
@@ -928,9 +1008,8 @@ export const ReportPage = ({ data }) => {
                 <React.Fragment key={i}>{body}</React.Fragment>
               )
             })}
-          </SummarySections>
-        ) : null}
-      </Card>
+        </SummarySections>
+      ) : null}
 
       {!sections.length ? (
         <CardGrid>

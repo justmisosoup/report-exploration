@@ -69,26 +69,6 @@ const BackToSummaryDock = styled.div`
   z-index: 4;
 `
 
-const BackToSummaryPill = styled.button`
-  align-items: center;
-  background: ${colors.white};
-  border: 1px solid ${colors.midnightLight2};
-  border-radius: 999px;
-  box-shadow: 0 2px 10px rgba(11, 49, 57, 0.14);
-  color: var(--core-color-text-primary);
-  cursor: pointer;
-  display: inline-flex;
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  gap: 6px;
-  padding: 7px 13px;
-
-  &:hover {
-    background: #f8fafc;
-  }
-`
-
 // Business descriptor: the plain-language read of what the business is,
 // shown above the Summary block at a slightly larger size.
 const Descriptor = styled.p`
@@ -532,22 +512,36 @@ const footerLink = (label, onNavigate) => (
 //         web: { status: {label, tag}, blurb, rows: [[label, value]] },
 //         risk: { level, score, title, signals: [[label, value]] },
 //         onViewVerification, onViewWeb, onViewRisk }
-// Analyst decision control: seeded by the policy verdict, rendered by the
-// Report C screen at the right end of the view-button row.
-export const DecisionMenu = ({ verdict }) => {
-  const [decision, setDecision] = React.useState(verdict || 'Approve')
+// Analyst decision control, rendered by the Report C screen at the right
+// end of the view-button row. Secondary button with a status dot per state;
+// opens on "Needs review" until the analyst decides.
+const DECISION_STATES = [
+  { label: 'Approve', color: '#16a34a' },
+  { label: 'Needs review', color: '#d97706' },
+  { label: 'Reject', color: '#dc2626' },
+]
+const DecisionDot = ({ color }) => (
+  <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
+)
+export const DecisionMenu = () => {
+  const [decision, setDecision] = React.useState('Needs review')
+  const current = DECISION_STATES.find((d) => d.label === decision)
   return (
     <Menu>
       <MenuTrigger asChild>
-        <ActionButton variant='primary'>
+        <ActionButton variant='secondary'>
+          <DecisionDot color={current.color} />
           {decision}
           <ChevronDown size={13} strokeWidth={1.5} aria-hidden='true' />
         </ActionButton>
       </MenuTrigger>
       <MenuContent align='end'>
-        {['Approve', 'Reject', 'Request review'].map((option) => (
-          <MenuItem key={option} onSelect={() => setDecision(option)}>
-            {option}
+        {DECISION_STATES.map(({ label, color }) => (
+          <MenuItem key={label} onSelect={() => setDecision(label)}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <DecisionDot color={color} />
+              {label}
+            </div>
           </MenuItem>
         ))}
       </MenuContent>
@@ -860,13 +854,15 @@ export const ReportPage = ({ data }) => {
       pane = pane.parentElement
     }
     if (!pane || pane === document.body) return
+    // The summary scrolls under the pane's sticky stack before it reaches
+    // the pane's true top, so inset the observation root by the sticky
+    // height: the pill appears the moment the summary is actually hidden.
     const sticky = pane.querySelector('[data-sticky-top]')
+    const stickyH = sticky ? sticky.offsetHeight : 0
+    setDockTop(stickyH + 10)
     const observer = new IntersectionObserver(
-      ([entry]) => {
-        setShowBack(!entry.isIntersecting)
-        setDockTop((sticky ? sticky.offsetHeight : 0) + 10)
-      },
-      { root: pane },
+      ([entry]) => setShowBack(!entry.isIntersecting),
+      { root: pane, rootMargin: `-${stickyH}px 0px 0px 0px` },
     )
     observer.observe(el)
     return () => observer.disconnect()
@@ -942,10 +938,17 @@ export const ReportPage = ({ data }) => {
       </SummaryPinned>
       {showBack ? (
         <BackToSummaryDock style={{ top: dockTop }}>
-          <BackToSummaryPill type='button' onClick={scrollToSummary}>
-            <ArrowUp size={12} strokeWidth={1.5} aria-hidden='true' />
+          {/* Same primary treatment as the Approve control; the shadow lifts
+              it off the document it floats over. */}
+          <ActionButton
+            type='button'
+            variant='primary'
+            onClick={scrollToSummary}
+            style={{ boxShadow: '0 2px 10px rgba(11, 49, 57, 0.22)' }}
+          >
+            <ArrowUp size={13} strokeWidth={1.5} aria-hidden='true' />
             Analyst summary
-          </BackToSummaryPill>
+          </ActionButton>
         </BackToSummaryDock>
       ) : null}
       {sections.length ? (

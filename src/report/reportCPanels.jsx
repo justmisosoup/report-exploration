@@ -69,7 +69,7 @@ export function AttributesPanel({ record }) {
   const humanStatus = record.status === 'in_review' ? 'In review' : record.status
   return (
     <Stack>
-      {section('Business details', [
+      {section('Entity details', [
         ['Legal name', record.name],
         ['Entity type', record.formation.entityType],
         ['Formation date', fmtDate(record.formation.date)],

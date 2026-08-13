@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, ChevronDown, ChevronLeft, Download, MoreHorizontal, Share } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronLeft, History as HistoryIcon, MoreHorizontal } from 'lucide-react';
 import {
   MetaChip, RiskSeverityBadge,
   ActionButton, IconActionButton,
@@ -19,6 +19,16 @@ import { reportDataFromBusiness as reportDataFromBusinessB } from './report/from
 import { reportDataFromBusiness as reportDataFromBusinessC } from './report/fromMiddeskC.js';
 import ReportChatPanel from './report/reportChat.jsx';
 import { DecisionMenu } from './report/indexC.jsx';
+
+// Report C version history: report snapshots, newest first, each carrying
+// the analyst decision made on it (if any). Shared by the chrome-row version
+// dropdown and the Identity history view.
+const REPORT_C_VERSIONS=[
+  {date:'Aug 12, 2026 · Current',decision:null,who:'Monitoring refresh · Middesk',note:'Web traffic anomaly flagged; industry risk unchanged.'},
+  {date:'May 3, 2026',decision:'Approved',tone:'clear',who:'Dana Melas',note:'Address verified after USPS update; name mismatch persists.'},
+  {date:'Jan 28, 2026',decision:'Approved · monitoring',tone:'watch',who:'Policy · Change monitoring',note:'New VOIP phone detected; connection risk re-scored.'},
+  {date:'Oct 4, 2025',decision:'Manual review',tone:'elev',who:'Dana Melas',note:'Initial report ordered; name mismatch against state filings.'},
+];
 import { AttributesPanel, SourcesPanel, ApiResponsePanel } from './report/reportCPanels.jsx';
 import middeskBusiness from './report/business.json';
 
@@ -2048,6 +2058,25 @@ export default class App extends React.Component {
      chat rail docked on the right behind a drag-adjustable divider. The
      #mid-scroll view key remounts this subtree on view change, so the chat
      conversation is fresh per visit. */
+  // Identity history tab body: every report version with the decision made
+  // on it and what changed, newest first. Viewing a version selects it in
+  // the chrome-row dropdown and returns to the report.
+  reportCIdentityHistory(){
+    const h=React.createElement;
+    const cur=this.state.reportCVersion||REPORT_C_VERSIONS[0].date;
+    return h('div',null,
+      h('div',{style:{fontSize:16,fontWeight:600,color:'var(--core-color-text-primary)'}},'Identity history'),
+      h('div',{style:{fontSize:12.5,color:'var(--core-color-text-muted)',marginTop:4}},REPORT_C_VERSIONS.length+' versions · newest first'),
+      h('div',{style:{marginTop:16,border:'1px solid var(--core-color-border-default)',borderRadius:12,overflow:'hidden'}},
+        ...REPORT_C_VERSIONS.map((v,i)=>
+          h('div',{key:v.date,style:{display:'grid',gridTemplateColumns:'170px 1fr auto auto',gap:16,alignItems:'center',padding:'14px 18px',borderTop:i?'1px solid var(--core-color-border-divider)':'none',background:cur===v.date?'var(--core-color-state-selected-bg)':'transparent'}},
+            h('div',null,
+              h('div',{style:{fontSize:13.5,fontWeight:500,color:'var(--core-color-text-primary)'}},v.date),
+              h('div',{style:{fontSize:11.5,color:'var(--core-color-text-muted)',marginTop:2}},v.who)),
+            h('div',{style:{fontSize:13,color:'var(--core-color-text-secondary)',lineHeight:1.5}},v.note),
+            v.decision?this.pill(v.decision,v.tone):h('span',{style:{fontSize:11.5,color:'var(--core-color-text-muted)'}},'No decision'),
+            h(ActionButton,{variant:'quiet',onClick:()=>this.setState({reportCVersion:v.date,reportCTab:'report'})},'View')))));
+  }
   reportScreenC(){
     const h=React.createElement;
     const data=reportDataFromBusinessC(middeskBusiness,{
@@ -2060,60 +2089,77 @@ export default class App extends React.Component {
     const tab=this.state.reportCTab||'report';
     // Static chrome above the card, on the canvas: back arrow + business
     // name on the left, Share on the right. Never scrolls.
-    const chromeRow=h('div',{style:{display:'flex',alignItems:'center',gap:8,minWidth:0,padding:'14px 4px 12px 0',flexShrink:0}},
+    const chromeRow=h('div',{style:{display:'flex',alignItems:'center',gap:8,minWidth:0,padding:'20px 4px 20px 0',flexShrink:0}},
       h(IconActionButton,{variant:'quiet','aria-label':'Back to all businesses',onClick:()=>this.setS({view:'list'})},
         h(ArrowLeft,{size:16,strokeWidth:1.5,'aria-hidden':true})),
       h('span',{style:{fontSize:16,fontWeight:700,letterSpacing:'-0.01em',color:'var(--core-color-text-primary)'}},middeskBusiness.name),
       h('div',{style:{flex:1}}),
-      // Overflow menu (API Response and other secondary views), left of the
-      // decision control.
+      // Version dropdown: report snapshots, newest first, each carrying the
+      // analyst decision made on that snapshot (if any). Prototype state
+      // only — selecting a version just updates the trigger label. Bordered
+      // trigger with icon + chevron so it clearly reads as a dropdown.
       h(Menu,null,
         h(MenuTrigger,{asChild:true},
-          h(IconActionButton,{variant:'quiet','aria-label':'More views'},
+          h(ActionButton,{variant:'secondary'},
+            h(HistoryIcon,{size:14,strokeWidth:1.5,'aria-hidden':true}),
+            'Version: '+(this.state.reportCVersion||'Aug 12, 2026 · Current'),
+            h(ChevronDown,{size:14,strokeWidth:1.5,'aria-hidden':true}))),
+        h(MenuContent,{align:'end'},
+          ...REPORT_C_VERSIONS.map(v=>
+            h(MenuItem,{key:v.date,onSelect:()=>this.setState({reportCVersion:v.date})},
+              h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:20,width:'100%',minWidth:280}},
+                h('span',null,v.date),
+                v.decision?this.pill(v.decision,v.tone):h('span',{style:{fontSize:11.5,color:'var(--core-color-text-muted)'}},'No decision')))))));
+    // View buttons: on the column, just above the doc panel, with the
+    // overflow menu (document actions + secondary views) pinned to the far
+    // right as a round icon button.
+    const viewButtons=h('div',{style:{display:'flex',alignItems:'center',flexWrap:'wrap',gap:6,minWidth:0}},
+      ...[['report','Report'],['attributes','Attributes'],['timeline','Timeline'],['sources','Sources'],['history','Identity history']].map(([v,l])=>
+        h(ActionButton,{key:v,variant:tab===v?'secondary':'quiet',onClick:()=>this.setState({reportCTab:v})},l)),
+      h('div',{style:{flex:1}}),
+      // Analyst decision control, left of the overflow menu.
+      h(DecisionMenu,null),
+      h(Menu,null,
+        h(MenuTrigger,{asChild:true},
+          h(IconActionButton,{variant:'secondary','aria-label':'More actions',title:'More actions',style:{borderRadius:'var(--core-radius-pill)'}},
             h(MoreHorizontal,{size:16,strokeWidth:1.5,'aria-hidden':true}))),
         h(MenuContent,{align:'end'},
-          h(MenuItem,{onSelect:()=>this.setState({reportCTab:'api_response'})},'API Response'))),
-      // Analyst decision control lives in the static chrome, top right.
-      h(DecisionMenu,{verdict:data.recommendation?.verdict}));
-    // View buttons: on the column, just above the doc panel, with Download
-    // PDF stuck to the far right and a hairline under the row.
-    const viewButtons=h('div',{style:{display:'flex',alignItems:'center',flexWrap:'wrap',gap:6,minWidth:0}},
-      ...[['report','Report'],['attributes','Attributes'],['timeline','Timeline'],['sources','Sources'],['history','History']].map(([v,l])=>
-        h(ActionButton,{key:v,variant:tab===v?'secondary':'quiet',onClick:()=>this.setState({reportCTab:v})},l)),
-      // Document actions pinned to the right end of the row.
-      h('div',{style:{flex:1}}),
-      h(ActionButton,{variant:'secondary'},h(Download,{size:14,strokeWidth:1.5,'aria-hidden':true}),'Download PDF'),
-      h(ActionButton,{variant:'secondary'},h(Share,{size:14,strokeWidth:1.5,'aria-hidden':true}),'Share'));
+          h(MenuItem,{onSelect:()=>{}},'Download PDF'),
+          h(MenuItem,{onSelect:()=>this.setState({reportCTab:'api_response'})},'API Response'))));
     // Center column: the view buttons on the canvas, the recommendation card
     // outside the doc panel, then the panel itself. The panel opens with the
     // business header (name + status), then the tab body; it is the
     // scroller, so anchor chips scroll within it.
     // Side padding is adaptive: it scales with the column width (so widening
     // the chat rail tightens the margins) between sane bounds.
-    // Inside the card, the recommendation and view buttons stay sticky while
-    // the report scrolls under them.
-    // The sticky stack spans the card's full width (background and bottom
-    // hairline run edge to edge); its content shares the body's side padding.
-    const stickyTop=h('div',{'data-sticky-top':'',style:{position:'sticky',top:0,zIndex:5,background:'var(--core-color-surface-card)',display:'flex',flexDirection:'column',gap:14,padding:'8px clamp(30px, 9%, 108px) 14px clamp(38px, 11%, 132px)',borderBottom:'1px solid var(--core-color-border-divider)'}},
+    // Inside the card, the view buttons are a fixed header with the hairline
+    // under it; only the report body below the hairline scrolls, so the
+    // scrollbar lives under the hairline rather than running beside the row.
+    const cardHeader=h('div',{style:{flexShrink:0,display:'flex',flexDirection:'column',gap:14,padding:'20px clamp(40px, 10%, 120px) 14px',borderBottom:'1px solid var(--core-color-border-divider)'}},
       viewButtons);
     // The white card floats on the canvas grey that also surrounds the chat.
-    // The card is a clipping shell; the scroller lives inside it, inset a
-    // touch from the top so the scrollbar clears the rounded corner.
-    const card=h('div',{style:{flex:1,minHeight:0,display:'flex',flexDirection:'column',background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',borderRadius:16,boxShadow:'var(--core-color-elevation-card)',overflow:'hidden'}},
-      h('div',{style:{flex:1,minHeight:0,overflowY:'auto',marginTop:12,paddingBottom:18}},
-        stickyTop,
-        // Body carries the side padding; the sticky stack above spans the
-        // full card width.
-        h('div',{style:{padding:'10px clamp(30px, 9%, 108px) 56px clamp(38px, 11%, 132px)'}},
+    // The card is a clipping shell: fixed header on top, scroller below.
+    const card=h('div',{style:{flex:1,minHeight:0,display:'flex',flexDirection:'column',background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',borderRadius:16,boxShadow:'var(--core-color-elevation-raised)',overflow:'hidden'}},
+      cardHeader,
+      // Scrollbar is overlay-style: hidden until the pane is actively
+      // scrolled (class toggled directly on the node, no re-render).
+      h('div',{className:'overlay-scroll',onScroll:(e)=>{const el=e.currentTarget;el.classList.add('is-scrolling');clearTimeout(el._scrollT);el._scrollT=setTimeout(()=>el.classList.remove('is-scrolling'),700);},style:{flex:1,minHeight:0,overflowY:'auto',paddingBottom:18}},
+        h('div',{style:{padding:'10px clamp(40px, 10%, 120px) 56px'}},
           tab==='report'?h(ReportPageC,{data})
             :tab==='attributes'?h(AttributesPanel,{record:middeskBusiness})
             :tab==='sources'?h(SourcesPanel,{record:middeskBusiness})
             :tab==='api_response'?h(ApiResponsePanel,{record:middeskBusiness})
-            :this.soon(tab==='timeline'?'Timeline':'History'))));
-    // Center region: static chrome on the canvas, the card below it.
-    const centerColumn=h('div',{style:{flex:1,minWidth:0,display:'flex',flexDirection:'column',padding:'0 0 14px 32px'}},
-      chromeRow,
-      card);
+            :tab==='history'?this.reportCIdentityHistory()
+            :this.soon('Timeline'))));
+    // Center region: static chrome on the canvas, the card below it. The
+    // chrome + card share a 1000px-max column; extra viewport width becomes
+    // canvas around it, keeping both center-aligned. Fixed 40px minimum
+    // gutter on both sides of the card (the right gutter counts the 10px
+    // divider handle, whose hairline sits at its center).
+    const centerColumn=h('div',{style:{flex:1,minWidth:0,display:'flex',flexDirection:'column',alignItems:'center',padding:'0 35px 14px 40px'}},
+      h('div',{style:{width:'100%',maxWidth:1000,flex:1,minHeight:0,display:'flex',flexDirection:'column'}},
+        chromeRow,
+        card));
     // position:relative so absolutely-positioned helpers (Radix hidden
     // spans) anchor inside this clipped root instead of extending the
     // #mid-scroll scroll height.

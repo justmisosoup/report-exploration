@@ -37,31 +37,41 @@ export function reportDataFromBusiness(record, nav = {}) {
     'KAIROS PHYSIO PLLC is a concierge physical therapy and personal training practice in Manhattan, ' +
     'delivered one-on-one by a Doctor of Physical Therapy.'
 
+  // Distilled from the section narratives below, same tiered language: what
+  // passed, what the risk actually is, which connection matters, and the one
+  // open question online.
+  const likelyConns = record.connections.filter((c) => c.confidence >= 0.9 && c.sharedAddresses.length > 1)
+  const nearbyConns = record.connections.filter((c) => !likelyConns.includes(c))
+  const topCountry = record.traffic.topCountries[0]
   const summaryGroups = [
     {
-      key: 'legitimacy',
-      title: 'Verification & risk',
+      key: 'verification',
+      title: 'Verification',
       parts: [
-        'The submitted name does not match state filings',
-        { chip: 'verification' },
-        ', and the practice classifies into a regulated healthcare category that payment processors treat as high risk',
-        { chip: 'industry' },
-        '. Two businesses share the office address',
-        { chip: 'connections' },
-        ', and the business phone is a VOIP line, a mild contact-quality flag',
-        { chip: 'fraud' },
-        '.',
+        'The core identity checks pass: the office address is verified, the New York filing is active, and ' +
+          'watchlist screening is clean. Two items keep verification open: the submitted name ' +
+          `${record.name} does not match the registered ${registrationName}, most likely a shortened trade name, ` +
+          'and no TIN was provided, so the IRS match never ran.',
+      ],
+    },
+    {
+      key: 'risk',
+      title: 'Risk context',
+      parts: [
+        'The flags on the file are context rather than conduct. Outpatient healthcare is rated high risk as a ' +
+          `category. ${likelyConns.map((c) => c.name).join(' and ')}, filed at the same address with a similar name, ` +
+          `is almost certainly the same operation, while ${nearbyConns.map((c) => c.name).join(' and ')} is simply ` +
+          'another tenant in the building. The VOIP business phone is a minor contact-quality note.',
       ],
     },
     {
       key: 'online',
       title: 'Online presence',
       parts: [
-        'Patients rate the practice strongly, with reviews naming the treating doctor',
-        { chip: 'reputation' },
-        '. The website is active and professionally built, though nearly all of its traffic originates in Vietnam',
-        { chip: 'web' },
-        '.',
+        `Online, the practice holds up: a ${googleProfile.rating.toFixed(1)} Google rating across ` +
+          `${googleProfile.ratingCount} reviews that name the treating doctor, and a website describing exactly ` +
+          `this business. The one anomaly is web traffic, ${Math.round(topCountry.share * 100)}% of which ` +
+          `originates in ${topCountry.name}, so the site's traffic is not evidence of local demand.`,
       ],
     },
   ]
@@ -69,8 +79,10 @@ export function reportDataFromBusiness(record, nav = {}) {
   // Each summary insight renders as a line with its supporting cards beneath
   // it; card keys map to the card registry in the Report page.
   const identityBlurb =
-    `The submitted name did not match state filings, which list the entity as ${registrationName}. ` +
-    `The address is verified and deliverable; no TIN was submitted for IRS matching.`
+    'The office address is verified as deliverable and commercial. The name is not verified: the business was ' +
+    `submitted as ${record.name}, but New York lists ${registrationName}. This reads as a shortened trade name; ` +
+    'a DBA filing or an updated state record would close it. No TIN was submitted, so the IRS match did not run; ' +
+    'the EIN should be requested before approval.'
 
   const visits = record.traffic.monthlyVisits
   const [, prevVisits] = record.traffic.history[record.traffic.history.length - 2]
@@ -92,19 +104,31 @@ export function reportDataFromBusiness(record, nav = {}) {
       // MCC and NAICS code cards beneath it (same shape as the social profile
       // cards under the reputation section).
       insight:
-        'Kairos classifies as outpatient physical therapy, a regulated healthcare category that payment processors ' +
-        'treat as high risk and that carries state licensure and healthcare compliance obligations. Watchlist ' +
-        'screening is clean and the New York filing is active.',
+        'The business classifies as outpatient physical therapy, a regulated healthcare category that payment ' +
+        'processors treat as high risk and that requires state licensure. The rating reflects the category, not ' +
+        'conduct: watchlist screening is clean and the New York filing is active.',
       cards: ['industry'],
     },
     {
       headerKey: 'connections',
-      // Combined narrative: the corroboration bullet plus the connections-found
-      // summary that used to live inside the card.
+      // Combined narrative: the corroboration bullet plus a tiered read of the
+      // connections. Only the corroborated match (high confidence, more than
+      // the one shared suite) is asserted as the same company; the rest read
+      // as nearby businesses.
       insight:
-        'Multiple third-party directory and point-of-interest records independently confirm the same address, phone number, and website, corroborating operational presence. ' +
-        `${record.connections.length} connected businesses share the office address: ${connectionNames.join(' and ')}. ` +
-        `With moderate tenant frequency and an unverified name, the record carries ${record.risk.level} risk.`,
+        `${['No', 'One', 'Two', 'Three', 'Four'][record.connections.length] || record.connections.length} other ` +
+        `business${record.connections.length === 1 ? ' is' : 'es are'} filed at the same office address, and they do not carry equal weight. ` +
+        record.connections
+          .map((c) => {
+            const pct = Math.round(c.confidence * 100)
+            const n = ['no', 'one', 'two', 'three', 'four'][c.sharedAddresses.length] || c.sharedAddresses.length
+            return c.confidence >= 0.9 && c.sharedAddresses.length > 1
+              ? `${c.name} is likely the same company: it shares ${n} filing addresses and a similar name (${pct}% match)`
+              : `${c.name} (${pct}% match) shares only the office suite, common in Manhattan buildings, so it reads as a neighbor rather than a related party`
+          })
+          .join('. ') +
+        '. Independent directory records confirm this address, phone, and website, so the practice does operate here; ' +
+        `the ${record.risk.level} rating reflects the shared building and the unverified name.`,
       cards: ['connRisk', 'connections'],
     },
     {
@@ -112,18 +136,19 @@ export function reportDataFromBusiness(record, nav = {}) {
       // Combined narrative: what the check screens for plus the one finding,
       // with the score and phone cards beneath it.
       insight:
-        'Signals the business may process payments for undisclosed third parties or misrepresent what it sells. ' +
-        'The business phone is a VOIP line, which is common for small practices using cloud telephony but is a mild contact-quality flag.',
+        'The screen covers transaction laundering: signs a business processes payments for someone else or ' +
+        'misrepresents what it sells. One flag turned up: the business phone is a VOIP line rather than a fixed ' +
+        'line, which is common for small practices on cloud telephony. It reads as a contact-quality issue, not ' +
+        'evidence of fraud.',
       cards: ['fraud'],
     },
     {
       headerKey: 'reputation',
       insight:
-        'The business has a strong online reputation for the type of business it is, holding a ' +
-        `${googleProfile.rating.toFixed(1)} Google rating across ${googleProfile.ratingCount} reviews ` +
-        'with consistent positive patient feedback naming the treating doctor. The LinkedIn presence is thin, with ' +
-        `${linkedinProfile.followers} followers, a listed size of ${linkedinProfile.companySize}, and no recent posts, ` +
-        'suggesting the practice may operate as a sole proprietorship.',
+        `Patient feedback supports a real practice: a ${googleProfile.rating.toFixed(1)} Google rating across ` +
+        `${googleProfile.ratingCount} reviews, with reviewers repeatedly naming the treating doctor. The LinkedIn ` +
+        `page is thin (${linkedinProfile.followers} followers, listed size ${linkedinProfile.companySize}, no recent ` +
+        'posts), but that fits a one-person practice and is not a flag on its own.',
       cards: ['reputation'],
     },
     {
@@ -133,11 +158,13 @@ export function reportDataFromBusiness(record, nav = {}) {
         // the summary above the visits/platform/domain cards.
         {
           text:
-            'The website is active, professionally built, and describes a specific concierge physical therapy practice ' +
-            'at 801 Madison Avenue, New York, NY 10065. ' +
-            `A ${record.website.platform} site on a domain registered in ${record.website.domainCreated.slice(0, 4)}, ` +
-            `drawing about ${visits.toLocaleString()} monthly visits. Traffic dipped ${visitsDeltaPct}% from the prior ` +
-            'month, in the range expected for a single-location clinic.',
+            `The website supports the identity claim: an active, professionally built ${record.website.platform} site ` +
+            'describing this exact practice at 801 Madison Avenue, on a domain registered in ' +
+            `${record.website.domainCreated.slice(0, 4)}, before the entity formed, consistent with a practice that renamed. ` +
+            `The open item is the traffic: ${Math.round(record.traffic.topCountries[0].share * 100)}% of its ` +
+            `roughly ${visits.toLocaleString()} monthly visits originate in ${record.traffic.topCountries[0].name} rather ` +
+            'than New York, so the traffic says nothing about local demand. The ' +
+            `${visitsDeltaPct}% dip from the prior month is normal for a single-location clinic.`,
         },
       ],
       // Platform and domain age on the top row; monthly visits and the

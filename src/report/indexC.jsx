@@ -107,15 +107,12 @@ const SectionGroup = styled.div`
   scroll-margin-top: 16px;
 `
 
-// Analyst summary: treated like the recommendation card up top — a tinted
-// rounded square with no outline.
-// Negative top margin offsets the Page flex gap so the summary sits tight
-// under the recommendation card.
+// Analyst summary: body copy in the report flow (no card chrome), set off by
+// a midnight citation rule down its left edge, echoing the recommendation
+// band's color.
 const SummaryPinned = styled.div`
-  background: #f8fafc;
-  border-radius: 14px;
-  margin-top: -10px;
-  padding: 24px;
+  border-left: 3px solid ${colors.midnightDark2};
+  padding: 2px 0 2px 20px;
 `
 
 // Shared tint for the AI squares (recommendation, analyst summary): a
@@ -155,11 +152,11 @@ const AnchorChip = styled.button`
   cursor: pointer;
   display: inline-flex;
   font-family: inherit;
-  font-size: 11px;
-  gap: 4px;
+  font-size: 13px;
+  gap: 6px;
   line-height: 1;
   margin: 0 2px;
-  padding: 3px 8px;
+  padding: 6px 12px;
   vertical-align: 2px;
   white-space: nowrap;
 
@@ -175,6 +172,40 @@ const SectionHead = styled.div`
   align-items: center;
   display: flex;
   justify-content: space-between;
+`
+
+// Section headers double as disclosure controls: the whole row is a button
+// that expands the section's narrative and cards beneath it.
+const SectionToggle = styled.button`
+  align-items: center;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  justify-content: space-between;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+
+  &:focus-visible {
+    outline: 2px solid var(--core-color-interactive-default);
+    outline-offset: 4px;
+  }
+
+  &:disabled {
+    cursor: default;
+  }
+`
+
+const SectionChevron = styled.span`
+  align-items: center;
+  color: var(--core-color-text-muted);
+  display: inline-flex;
+  transform: rotate(${({ $open }) => ($open ? 180 : 0)}deg);
+  transition: transform 0.15s ease;
 `
 
 const SectionHeadTitle = styled.span`
@@ -312,7 +343,7 @@ const RATING_TAG = { low: 'green', moderate: 'inactive', high: 'warning', not_av
 const CHECK_CHIP = {
   success: ['green', 'Verified'],
   warning: ['inactive', 'Review'],
-  failure: ['warning', 'Failed'],
+  failure: ['warning', 'Unverified'],
   unknown: ['unknown', 'Not provided'],
 }
 
@@ -549,14 +580,21 @@ export const DecisionMenu = () => {
   )
 }
 
-// Policy recommendation card: rendered by the Report C screen above the
-// report window (not inside it).
-export const PolicyRecommendation = ({ recommendation }) => {
+// Policy recommendation card: rendered by the Report C screen at the top of
+// the report scroller, full bleed against the card edges (style carries the
+// flush overrides: zero radius plus the report column's side gutters).
+export const PolicyRecommendation = ({ recommendation, style }) => {
   if (!recommendation) return null
   return (
-    <RecommendationPanel>
-      <div style={{ fontSize: typography.sizes.medium, fontWeight: typography.weights.bold, color: colors.white, lineHeight: 1.5 }}>
-        {recommendation.detail}
+    <RecommendationPanel style={style}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ fontSize: typography.sizes.medium, fontWeight: typography.weights.bold, color: colors.white, lineHeight: 1.5 }}>
+          {recommendation.detail}
+        </div>
+        <AiNote style={{ color: 'rgba(255, 255, 255, 0.66)', flexShrink: 0 }}>
+          <Sparkle size={12} strokeWidth={1.5} />
+          AI-generated
+        </AiNote>
       </div>
       {recommendation.support ? (
         <div style={{ fontSize: typography.sizes.medium, color: 'rgba(255, 255, 255, 0.72)', lineHeight: 1.5, marginTop: 4 }}>
@@ -725,7 +763,7 @@ export const ReportPage = ({ data }) => {
             <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 6, fontSize: typography.sizes.medium, color: 'var(--core-color-text-primary)' }}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <SquarespaceMark title={web.platform} />
-                <TextTooltip placement='top' content={web.platformDetail} trigger={web.platform} />
+                {web.platform}
               </span>
               {web.platformDetail?.includes('Magento') ? (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -811,17 +849,25 @@ export const ReportPage = ({ data }) => {
   const sectionHeads = {
     // tone drives the little status icon inside the summary's inline chips:
     // success = check, warning = exclamation, failure = red X.
-    reputation: { title: 'Online reputation', tone: 'success', chip: <Chip type='green'>Strong</Chip>, nav: data.onViewReputation },
+    reputation: { title: 'Online reputation', tone: 'success', statusLabel: 'Strong', chip: <Chip type='green'>Strong</Chip>, nav: data.onViewReputation },
     industry: compliance
-      ? { title: 'Industry risk', tone: compliance.status.tag === 'warning' ? 'failure' : compliance.status.tag === 'green' ? 'success' : 'warning', chip: <Chip type={compliance.status.tag}>{compliance.status.label}</Chip>, nav: data.onViewCompliance }
+      ? { title: 'Industry risk', tone: compliance.status.tag === 'warning' ? 'failure' : compliance.status.tag === 'green' ? 'success' : 'warning', statusLabel: compliance.status.label, chip: <Chip type={compliance.status.tag}>{compliance.status.label}</Chip>, nav: data.onViewCompliance }
       : null,
     fraud: fraud
-      ? { title: 'Transaction laundering & fraud', tone: fraud.status.tag === 'warning' ? 'failure' : fraud.status.tag === 'green' ? 'success' : 'warning', chip: <Chip type={fraud.status.tag}>{fraud.status.label}</Chip>, nav: data.onViewFraud }
+      ? { title: 'Transaction laundering & fraud', tone: fraud.status.tag === 'warning' ? 'failure' : fraud.status.tag === 'green' ? 'success' : 'warning', statusLabel: fraud.status.label, chip: <Chip type={fraud.status.tag}>{fraud.status.label}</Chip>, nav: data.onViewFraud }
       : null,
-    web: { title: 'Website quality', tone: web.status.tag === 'warning' ? 'failure' : web.status.tag === 'green' ? 'success' : 'warning', chip: <Chip type={web.status.tag}>{web.status.label}</Chip>, nav: data.onViewWeb },
+    web: { title: 'Website quality', tone: web.status.tag === 'warning' ? 'failure' : web.status.tag === 'green' ? 'success' : 'warning', statusLabel: web.status.label, chip: <Chip type={web.status.tag}>{web.status.label}</Chip>, nav: data.onViewWeb },
     verification: {
       title: 'Entity verification',
       tone: verificationStatus === 'verified' ? 'success' : verificationStatus ? 'warning' : 'unknown',
+      statusLabel:
+        verificationStatus === 'verified'
+          ? 'Verified'
+          : verificationStatus === 'partial'
+            ? 'Partially verified'
+            : verificationStatus === 'unverified'
+              ? 'Unverified'
+              : 'Not ordered',
       chip:
         verificationStatus === 'verified' ? (
           <Chip type='green'>Verified</Chip>
@@ -834,7 +880,7 @@ export const ReportPage = ({ data }) => {
         ),
       nav: data.onViewVerification,
     },
-    connections: { title: 'Connection risk', tone: risk.level === 'high' ? 'failure' : risk.level === 'low' ? 'success' : 'warning', chip: <Chip type={RATING_TAG[risk.level]}>{RATING_LABEL[risk.level]}</Chip>, nav: data.onViewRisk },
+    connections: { title: 'Connection risk', tone: risk.level === 'high' ? 'failure' : risk.level === 'low' ? 'success' : 'warning', statusLabel: RATING_LABEL[risk.level], chip: <Chip type={RATING_TAG[risk.level]}>{RATING_LABEL[risk.level]}</Chip>, nav: data.onViewRisk },
   }
 
   const sections = data.sections || []
@@ -880,9 +926,46 @@ export const ReportPage = ({ data }) => {
     else el.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
+  // Sections disclose progressively: the header row and summary narrative
+  // stay visible, the attribute cards beneath collapse until opened. The
+  // verification header carries the per-check outcomes (name, address) so
+  // those read at the top level even while its cards are collapsed.
+  const [openSections, setOpenSections] = React.useState({})
+  const toggleSection = (key) => setOpenSections((s) => ({ ...s, [key]: !s[key] }))
+
+  // Status chips pulled out of the summary prose into one row beneath it:
+  // the name and address verification outcomes first, then one chip per
+  // insight section. Each chip scrolls to (and opens) its section.
+  const summaryChips = [
+    ...(data.verificationChecks || [])
+      .filter((c) => c.status !== 'unknown')
+      .map(({ label, status }) => ({
+        key: `check-${label}`,
+        intent: status,
+        text: `${label} · ${(CHECK_CHIP[status] || CHECK_CHIP.unknown)[1]}`,
+        target: 'verification',
+      })),
+    ...['industry', 'connections', 'fraud', 'reputation', 'web']
+      .filter((k) => sectionHeads[k])
+      .map((k) => ({
+        key: k,
+        intent: sectionHeads[k].tone,
+        // "Industry risk · High risk" doubles up; trim a status that repeats
+        // the title's last word (High risk → High).
+        status: sectionHeads[k].statusLabel.replace(/ risk$/i, ''),
+        text: `${sectionHeads[k].title} · ${sectionHeads[k].statusLabel.replace(/ risk$/i, '')}`,
+        target: k,
+      })),
+  ]
+
   // Chip anchors land the section card near the top of the scroll pane
-  // (small breathing offset, no sticky block to account for).
+  // (small breathing offset, no sticky block to account for). Anchors open
+  // the section first; the scroll waits a frame for the layout to exist.
   const scrollToSection = (key) => {
+    setOpenSections((s) => (s[key] ? s : { ...s, [key]: true }))
+    requestAnimationFrame(() => requestAnimationFrame(() => doScrollToSection(key)))
+  }
+  const doScrollToSection = (key) => {
     const el = document.getElementById(`report-section-${key}`)
     if (!el) return
     let pane = el.parentElement
@@ -902,39 +985,33 @@ export const ReportPage = ({ data }) => {
     pane.scrollTo({ top, behavior: 'smooth' })
   }
 
-  // Summary group parts: strings render as text, { chip } markers render as
-  // inline chips that scroll to their section.
+  // Summary group parts: the prose renders plain; { chip } markers are
+  // skipped here because the section chips live in the row below the summary.
   const renderSummaryParts = (parts) =>
-    parts.map((part, i) =>
-      typeof part === 'string' ? (
-        <React.Fragment key={i}>{part}</React.Fragment>
-      ) : sectionHeads[part.chip] ? (
-        <AnchorChip key={i} type='button' onClick={() => scrollToSection(part.chip)}>
-          <StatusDot intent={sectionHeads[part.chip].tone} size={11} />
-          {sectionHeads[part.chip].title}
-        </AnchorChip>
-      ) : null,
-    )
+    parts.map((part, i) => (typeof part === 'string' ? <React.Fragment key={i}>{part}</React.Fragment> : null))
 
   return (
     <Page>
       {data.summaryDescription ? <Descriptor>{data.summaryDescription}</Descriptor> : null}
-      <div style={{ marginTop: 14 }}>
-        <PolicyRecommendation recommendation={data.recommendation} />
-      </div>
       <SummaryPinned ref={summaryRef}>
         <SummaryHead>
           <SectionHeadTitle>Analyst Summary</SectionHeadTitle>
-          <AiNote>
-            <Sparkle size={12} strokeWidth={1.5} />
-            AI-generated
-          </AiNote>
         </SummaryHead>
         <SummaryBody>
           {(data.summaryGroups || []).map((group) => (
             <SummaryPara key={group.key}>{renderSummaryParts(group.parts)}</SummaryPara>
           ))}
         </SummaryBody>
+        {/* Status chips pulled out of the prose: verification outcomes, then
+            one chip per insight section, each scrolling to its section. */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 14 }}>
+          {summaryChips.map((c) => (
+            <AnchorChip key={c.key} type='button' onClick={() => scrollToSection(c.target)} style={{ margin: 0 }}>
+              <StatusDot intent={c.intent} size={13} />
+              {c.text}
+            </AnchorChip>
+          ))}
+        </div>
       </SummaryPinned>
       {showBack ? (
         <BackToSummaryDock style={{ top: dockTop }}>
@@ -997,18 +1074,44 @@ export const ReportPage = ({ data }) => {
                   {belowInsight}
                 </>
               )
-              return head ? (
+              if (!head) return <React.Fragment key={i}>{body}</React.Fragment>
+              // Headed sections disclose progressively: title, chip, and the
+              // summary narrative always show; the cards expand on demand.
+              const open = !!openSections[section.headerKey]
+              const hasCards = !!cards
+              return (
                 <SectionGroup key={i} id={section.headerKey ? `report-section-${section.headerKey}` : undefined}>
                   <SectionHead>
-                    <SectionHeadTitle>
-                      {head.title}
-                      {head.chip}
-                    </SectionHeadTitle>
+                    <SectionToggle
+                      type='button'
+                      onClick={() => toggleSection(section.headerKey)}
+                      aria-expanded={open}
+                      disabled={!hasCards}
+                    >
+                      <SectionHeadTitle>
+                        {head.title}
+                        {/* The section's summary chips as static spans. Next
+                            to the title only the rating shows (the title is
+                            already there); verification keeps its full
+                            name/address pair. */}
+                        {summaryChips
+                          .filter((c) => c.target === section.headerKey)
+                          .map((c) => (
+                            <AnchorChip key={c.key} as='span' style={{ margin: 0, cursor: 'inherit' }}>
+                              <StatusDot intent={c.intent} size={12} />
+                              {c.status ?? c.text}
+                            </AnchorChip>
+                          ))}
+                      </SectionHeadTitle>
+                      {hasCards ? (
+                        <SectionChevron $open={open}>
+                          <ChevronDown size={15} strokeWidth={1.5} aria-hidden='true' />
+                        </SectionChevron>
+                      ) : null}
+                    </SectionToggle>
                   </SectionHead>
-                  {body}
+                  {open ? body : insight}
                 </SectionGroup>
-              ) : (
-                <React.Fragment key={i}>{body}</React.Fragment>
               )
             })}
         </SummarySections>

@@ -18,7 +18,7 @@ import { reportDataFromBusiness, webPresenceDataFromBusiness } from './report/fr
 import { reportDataFromBusiness as reportDataFromBusinessB } from './report/fromMiddeskB.js';
 import { reportDataFromBusiness as reportDataFromBusinessC } from './report/fromMiddeskC.js';
 import ReportChatPanel from './report/reportChat.jsx';
-import { DecisionMenu } from './report/indexC.jsx';
+import { DecisionMenu, PolicyRecommendation } from './report/indexC.jsx';
 
 // Report C version history: report snapshots, newest first, each carrying
 // the analyst decision made on it (if any). Shared by the chrome-row version
@@ -2144,6 +2144,10 @@ export default class App extends React.Component {
       // Scrollbar is overlay-style: hidden until the pane is actively
       // scrolled (class toggled directly on the node, no re-render).
       h('div',{className:'overlay-scroll',onScroll:(e)=>{const el=e.currentTarget;el.classList.add('is-scrolling');clearTimeout(el._scrollT);el._scrollT=setTimeout(()=>el.classList.remove('is-scrolling'),700);},style:{flex:1,minHeight:0,overflowY:'auto',paddingBottom:18}},
+        // Recommendation opens the report full bleed: edge to edge under the
+        // header hairline, square corners, with the report column's side
+        // gutters as padding so its text lines up with the content below.
+        tab==='report'?h(PolicyRecommendation,{recommendation:data.recommendation,style:{borderRadius:0,padding:'24px clamp(40px, 10%, 120px)'}}):null,
         h('div',{style:{padding:'10px clamp(40px, 10%, 120px) 56px'}},
           tab==='report'?h(ReportPageC,{data})
             :tab==='attributes'?h(AttributesPanel,{record:middeskBusiness})

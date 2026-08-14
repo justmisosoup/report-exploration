@@ -6,6 +6,9 @@ import styled from 'styled-components'
 
 import { MetaChip } from '@/core/Badge'
 import { ActionButton } from '@/core/Action'
+import { Attribute } from '@/core/Attribute'
+import { Icon } from '@/core/Icon'
+import { colors } from '@/core/theme'
 
 import { Card, CardHead, CardTitle } from './cards'
 
@@ -19,29 +22,6 @@ const Rows = styled.div`
   padding: 4px 22px 10px;
 `
 
-const Row = styled.div`
-  align-items: baseline;
-  border-top: 1px solid var(--core-color-border-divider);
-  display: grid;
-  gap: 16px;
-  grid-template-columns: 220px 1fr;
-  padding: 10px 0;
-
-  &:first-child {
-    border-top: none;
-  }
-`
-
-const RowLabel = styled.span`
-  color: var(--core-color-text-muted);
-  font-size: 12.5px;
-`
-
-const RowValue = styled.span`
-  color: var(--core-color-text-primary);
-  font-size: 13.5px;
-`
-
 const Muted = styled.span`
   color: var(--core-color-text-muted);
 `
@@ -49,79 +29,141 @@ const Muted = styled.span`
 const fmtDate = (iso) =>
   new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 
-const section = (title, rows) => (
-  <Card key={title}>
-    <CardHead>
-      <CardTitle style={{ fontSize: 16 }}>{title}</CardTitle>
-    </CardHead>
-    <Rows>
-      {rows.map(([label, value]) => (
-        <Row key={label}>
-          <RowLabel>{label}</RowLabel>
-          <RowValue>{value}</RowValue>
-        </Row>
-      ))}
-    </Rows>
-  </Card>
-)
+// --- Attributes tab: DS Attribute grid --------------------------------------
+// Groups of core Attribute components (bold label over value, muted detail)
+// under uppercase micro-labels, laid out as a grid on the report surface
+// instead of nested cards.
+const AttrGroup = styled.section`
+  border-top: 1px solid var(--core-color-border-divider);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 20px;
+
+  &:first-child {
+    border-top: none;
+    padding-top: 0;
+  }
+`
+
+const AttrGroupLabel = styled.div`
+  color: var(--core-color-text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+`
+
+const AttrGrid = styled.div`
+  display: grid;
+  gap: 10px 24px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+`
+
+// Value row with a supporting figure pinned to the right (e.g. industry
+// confidence as a bare number beside the category).
+const ValueBetween = styled.span`
+  align-items: baseline;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+`
+
+const OutLink = styled.a`
+  align-items: center;
+  color: ${colors.blue};
+  display: inline-flex;
+  gap: 4px;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+`
+
+// State corporate-registry search portals for the registration link-outs.
+const SOS_PORTAL = {
+  NY: 'https://apps.dos.ny.gov/publicInquiry/',
+  DE: 'https://icis.corp.delaware.gov/ecorp/entitysearch/NameSearch.aspx',
+  CA: 'https://bizfileonline.sos.ca.gov/search/business',
+}
 
 export function AttributesPanel({ record }) {
   const humanStatus = record.status === 'in_review' ? 'In review' : record.status
+  const group = (title, children) => (
+    <AttrGroup key={title}>
+      <AttrGroupLabel>{title}</AttrGroupLabel>
+      <AttrGrid>{children}</AttrGrid>
+    </AttrGroup>
+  )
   return (
-    <Stack>
-      {section('Entity details', [
-        ['Legal name', record.name],
-        ['Entity type', record.formation.entityType],
-        ['Formation date', fmtDate(record.formation.date)],
-        ['Formation state', record.formation.state],
-        ['Status', humanStatus],
-        ['TIN', record.tin ?? <Muted>Not provided</Muted>],
-      ])}
-      {section(
-        'Names',
-        record.names.map((n, i) => [
-          n.type === 'registration' ? 'Registration name' : 'Submitted name',
-          <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {n.name}
-            <MetaChip tone='neutral' size='compact'>{n.type}</MetaChip>
-            {n.notes ? <Muted>{n.notes}</Muted> : null}
-          </span>,
-        ]),
-      )}
-      {section(
-        'Addresses',
-        record.addresses.map((a, i) => [`Address ${i + 1}`, a.fullAddress]),
-      )}
-      {section(
-        'People',
-        record.people.map((p) => [
-          p.name,
-          p.titles?.length ? p.titles.join(', ') : <Muted>No title listed</Muted>,
-        ]),
-      )}
-      {section(
-        'Registrations',
-        record.registrations.map((r) => [
-          r.state,
-          `${r.status.charAt(0).toUpperCase() + r.status.slice(1)} · File ${r.fileNumber} · Filed ${fmtDate(r.fileDate)}`,
-        ]),
-      )}
-      {section('Website', [
-        ['URL', record.website.url],
-        ['Domain created', fmtDate(record.website.domainCreated)],
-        ['Registrar', record.website.registrar],
-        ['Platform', record.website.platform],
-      ])}
-      {section(
-        'Industry',
-        record.industry.map((i) => [
-          `${i.system} ${i.code}`,
-          <span key={i.code} style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
-            {i.category}
-            <Muted>{i.confidence}% confidence</Muted>
-          </span>,
-        ]),
-      )}
+    <Stack style={{ gap: 24 }}>
+      {group('Entity details', (
+        <>
+          <Attribute label='Legal name' value={record.name} />
+          <Attribute label='Entity type' value={record.formation.entityType} />
+          <Attribute label='Status' value={humanStatus} />
+          <Attribute label='Formation date' value={fmtDate(record.formation.date)} />
+          <Attribute label='Formation state' value={record.formation.state} />
+          <Attribute label='TIN' value={record.tin} detail={record.tin ? null : 'Not provided'} />
+        </>
+      ))}
+      {group('Names', record.names.map((n) => (
+        <Attribute
+          key={n.name}
+          label={n.type === 'registration' ? 'Registration name' : 'Submitted name'}
+          value={n.name}
+          detail={n.notes}
+        />
+      )))}
+      {group('Addresses', record.addresses.map((a, i) => (
+        <Attribute key={a.fullAddress} label={`Address ${i + 1}`} value={a.fullAddress} />
+      )))}
+      {group('People', record.people.map((p) => (
+        <Attribute
+          key={p.name}
+          label={p.name}
+          value={p.titles?.length ? p.titles.join(', ') : 'No title listed'}
+        />
+      )))}
+      {group('Registrations', record.registrations.map((r) => (
+        <Attribute
+          key={r.fileNumber}
+          label={r.state}
+          value={r.status.charAt(0).toUpperCase() + r.status.slice(1)}
+          detail={
+            <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+              {`File ${r.fileNumber} · Filed ${fmtDate(r.fileDate)}`}
+              {SOS_PORTAL[r.state] ? (
+                <OutLink href={SOS_PORTAL[r.state]} target='_blank' rel='noreferrer'>
+                  Secretary of State portal
+                  <Icon name='externalLink' size={11} />
+                </OutLink>
+              ) : null}
+            </span>
+          }
+        />
+      )))}
+      {group('Website', (
+        <>
+          <Attribute label='URL' value={record.website.url} />
+          <Attribute label='Platform' value={record.website.platform} />
+          <Attribute label='Registrar' value={record.website.registrar} />
+          <Attribute label='Domain created' value={fmtDate(record.website.domainCreated)} />
+        </>
+      ))}
+      {group('Industry', record.industry.map((i) => (
+        <Attribute
+          key={`${i.system}-${i.code}`}
+          label={`${i.system} ${i.code}`}
+          value={
+            <ValueBetween>
+              {i.category}
+              <Muted>{i.confidence}</Muted>
+            </ValueBetween>
+          }
+        />
+      )))}
     </Stack>
   )
 }

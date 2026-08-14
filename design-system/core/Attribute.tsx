@@ -1,12 +1,9 @@
 import type React from 'react'
 import { useState } from 'react'
 
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore will be replaced with new icons
-import { ReactComponent as EyeOffIcon } from 'ionicons/dist/ionicons/svg/ios-eye-off.svg'
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore will be replaced with new icons
-import { ReactComponent as EyeIcon } from 'ionicons/dist/ionicons/svg/ios-eye.svg'
+// Prototype-local: the app imports these from ionicons via svgr, which this
+// repo doesn't ship; lucide-react stands in for the masked-value eye toggles.
+import { Eye as EyeIcon, EyeOff as EyeOffIcon } from 'lucide-react'
 import styled from 'styled-components'
 
 import { colors, spacing, typography } from './theme'

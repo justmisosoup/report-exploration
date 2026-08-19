@@ -45,3 +45,9 @@ export {
   ChatComposer,
   ChatSuggestions,
 } from '../design-system/core/Chat'
+export {
+  Field,
+  FieldLabel,
+  FieldDescription,
+  Input,
+} from '../design-system/core/Field'

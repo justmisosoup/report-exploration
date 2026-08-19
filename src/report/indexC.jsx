@@ -782,7 +782,13 @@ export const ReportPage = ({ data }) => {
           <div style={{ padding: '16px 20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
               <span style={{ fontSize: typography.sizes.medium, fontWeight: typography.weights.bold, color: 'var(--core-color-text-primary)' }}>Domain traffic</span>
-              <StatusDot intent='warning' size={16} />
+              {/* The flag sits with its status mark; the tooltip carries why
+                  the pattern is suspicious (the rows already show where the
+                  traffic comes from). */}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: typography.sizes.medium, color: 'var(--core-color-text-muted)' }}>
+                <TextTooltip placement='top' content={web.qualityDetail} trigger='Suspicious' />
+                <StatusDot intent='warning' size={16} />
+              </span>
             </div>
             {web.trafficTop.map((c) => (
               <div key={c.name} style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, fontSize: typography.sizes.medium, marginTop: 6 }}>
@@ -792,9 +798,6 @@ export const ReportPage = ({ data }) => {
                 </span>
               </div>
             ))}
-            <div style={{ marginTop: 8, fontSize: typography.sizes.medium, color: 'var(--core-color-text-muted)' }}>
-              <TextTooltip placement='top' content={web.qualityDetail} trigger='Flagged as suspicious' />
-            </div>
           </div>
         </MiniCard>
     ) : null,

@@ -216,9 +216,11 @@ export function reportDataFromBusiness(record, nav = {}) {
       domainAge: `${ageYM(record.website.domainCreated)} old`,
       domainRegistered: `Registered ${fmtLongDate(record.website.domainCreated)}`,
       quality: 'Suspicious',
+      // Why the pattern is suspicious, not where the traffic is from: the
+      // card's country rows already show the origin split.
       qualityDetail:
-        `${Math.round(record.traffic.topCountries[0].share * 100)}% of traffic originates in ` +
-        `${record.traffic.topCountries[0].name}, but the business claims to operate from New York City`,
+        'A New York clinic should draw its visits locally. Traffic concentrated in one distant country is a ' +
+        'pattern consistent with purchased or automated visits, not patients.',
       // Top two traffic origins for the Domain traffic card, with each
       // country's slice of the monthly visits.
       trafficTop: record.traffic.topCountries.slice(0, 2).map((c) => ({

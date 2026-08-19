@@ -1,0 +1,16 @@
+{
+  "id": "test.novel_signal",
+  "group": "Scalability Test",
+  "text": "Does the fictional signal look plausible?",
+  "type": "graded",
+  "role_default": "decisioning",
+  "min_data_policy": "authoritative",
+  "backing": ["fictional_check"],
+  "combinator": "single_check",
+  "result_values": ["plausible", "implausible", "indeterminate"],
+  "answer_options": ["Looks plausible", "Looks implausible"],
+  "answer_mapping": { "plausible": "Looks plausible", "implausible": "Looks implausible", "indeterminate": "Looks implausible" },
+  "note": "Fictional unit for the add-a-unit scalability test. Appended only with ?testunit=1.",
+  "from_questions": [],
+  "needs_review": false
+}

@@ -1,0 +1,889 @@
+{
+  "version": 2,
+  "derived_from": "questions.csv (KYB + Risk, mapped rows), revised through group-by-group walkthrough",
+  "units": [
+    {
+      "id": "physical_address.restricted_country",
+      "group": "Physical Address",
+      "text": "Is the business address in a prohibited or restricted country?",
+      "type": "permitted_set",
+      "role_default": "decisioning",
+      "min_data_policy": "authoritative",
+      "backing": [
+        "watchlist",
+        "address_country"
+      ],
+      "combinator": "first_true",
+      "value_space": {
+        "kind": "country_codes",
+        "cardinality": "large",
+        "control": "searchable_multiselect"
+      },
+      "result_values": [
+        "sanctioned_country",
+        "country_on_denylist",
+        "permitted"
+      ],
+      "note": "Two flags, both landing on the same answer. Customer supplies the denylist; OFAC country programs supply the first.",
+      "from_questions": [
+        "PA1"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "physical_address.exists",
+      "group": "Physical Address",
+      "text": "Is there evidence the address exists?",
+      "type": "graded",
+      "role_default": "decisioning",
+      "min_data_policy": "authoritative",
+      "backing": [
+        "address_deliverability"
+      ],
+      "combinator": "single_check",
+      "result_values": [
+        "deliverable",
+        "undeliverable",
+        "vacant",
+        "unknown"
+      ],
+      "answer_options": [
+        "Yes",
+        "No"
+      ],
+      "answer_mapping": {
+        "deliverable": "Yes",
+        "undeliverable": "No",
+        "vacant": "No",
+        "unknown": "No"
+      },
+      "from_questions": [
+        "PA2"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "physical_address.permitted_types",
+      "group": "Physical Address",
+      "text": "Which address types are acceptable?",
+      "type": "permitted_set",
+      "role_default": "decisioning",
+      "min_data_policy": "authoritative",
+      "backing": [
+        "registered_agent",
+        "address_cmra",
+        "private_mailbox",
+        "po_box",
+        "address_type",
+        "address_property_type"
+      ],
+      "combinator": "first_true",
+      "value_space": {
+        "kind": "address_types",
+        "cardinality": "small",
+        "control": "checkboxes"
+      },
+      "result_values": [
+        "registered_agent",
+        "cmra",
+        "private_mailbox",
+        "po_box",
+        "virtual_office",
+        "mail_forwarding",
+        "commercial",
+        "residential"
+      ],
+      "note": "Customer declares which types they accept for an otherwise valid address. Office / Law Firm / Shipping business address in Mercury's list have no backing signal.",
+      "from_questions": [
+        "PA3"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "physical_address.entity_linkage",
+      "group": "Physical Address",
+      "text": "Can the business be connected to the address?",
+      "type": "graded",
+      "role_default": "decisioning",
+      "min_data_policy": "+web",
+      "backing": [
+        "address_verification",
+        "web_address_verification"
+      ],
+      "combinator": "first_true",
+      "result_values": [
+        "authoritative_listing",
+        "web_listing",
+        "no_linkage"
+      ],
+      "answer_options": [
+        "Yes",
+        "No"
+      ],
+      "answer_mapping": {
+        "authoritative_listing": "Yes",
+        "web_listing": "Yes",
+        "no_linkage": "No"
+      },
+      "note": "Either source satisfies. Needs +web to be answerable at all.",
+      "from_questions": [
+        "PA6"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "physical_address.match",
+      "group": "Physical Address",
+      "text": "Does the address match what was submitted?",
+      "type": "graded",
+      "role_default": "decisioning",
+      "min_data_policy": "authoritative",
+      "backing": [
+        "address_verification"
+      ],
+      "combinator": "single_check",
+      "result_values": [
+        "verified",
+        "approximate",
+        "similar",
+        "incomplete",
+        "unverified"
+      ],
+      "answer_options": [
+        "Yes - exact match",
+        "Yes - minor variance",
+        "No - major variance"
+      ],
+      "answer_mapping": {
+        "verified": "Yes - exact match",
+        "approximate": "Yes - exact match",
+        "similar": "Yes - minor variance",
+        "incomplete": "No - major variance",
+        "unverified": "No - major variance"
+      },
+      "note": "Demo: set to informational as the opening move.",
+      "from_questions": [
+        "PA9"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "industry.classification",
+      "group": "Industry & Activities",
+      "text": "What is the business's industry?",
+      "type": "classification",
+      "role_default": "informational",
+      "min_data_policy": "+web",
+      "backing": [
+        "industry"
+      ],
+      "combinator": "single_check",
+      "result_values": [
+        "classified",
+        "unclassified"
+      ],
+      "note": "Produces the value the prohibited-list question evaluates. Override affordance on the report.",
+      "from_questions": [
+        "I1",
+        "I2"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "industry.lists",
+      "group": "Industry & Activities",
+      "text": "Which industries are knocked out, restricted, or expected?",
+      "type": "permitted_set",
+      "role_default": "decisioning",
+      "min_data_policy": "+web",
+      "backing": [
+        "industry",
+        "naics_code",
+        "adverse_media.risk_scores.industry_categories"
+      ],
+      "combinator": "first_true",
+      "value_space": {
+        "kind": "naics_and_categories",
+        "cardinality": "large",
+        "control": "searchable_multiselect",
+        "lists": [
+          {
+            "name": "knock_out",
+            "outcome": "deny"
+          },
+          {
+            "name": "restricted",
+            "outcome": "review"
+          },
+          {
+            "name": "target",
+            "outcome": "approve"
+          }
+        ]
+      },
+      "depends_on": [
+        "industry.classification"
+      ],
+      "note": "Second backing signal: the 18 lawful-but-high-risk categories in adverse media risk_scores corroborate NAICS. Mercury's I3 list also contains non-industry judgments (shell corporations, nested payment processors, predatory practices, Choice of Law) with no backing signal.",
+      "from_questions": [
+        "I2.5",
+        "I3",
+        "I6",
+        "I11",
+        "I13",
+        "I15",
+        "I20"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "industry.ptin_registered",
+      "group": "Industry & Activities",
+      "text": "Is the tax preparer registered in the IRS PTIN database?",
+      "type": "graded",
+      "role_default": "decisioning",
+      "min_data_policy": "authoritative",
+      "backing": [
+        "irs_ptin"
+      ],
+      "combinator": "single_check",
+      "result_values": [
+        "registered",
+        "not_registered",
+        "not_found"
+      ],
+      "answer_options": [
+        "Yes",
+        "No"
+      ],
+      "parent_id": "industry.lists",
+      "parent_answer": "naics:541211",
+      "note": "Was mapped to `tin` (the EIN check). Remapped to the IRS PTIN source.",
+      "from_questions": [
+        "I12"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "entity.type_match",
+      "group": "Entity & Structure",
+      "text": "Does the submitted entity type match what was filed?",
+      "type": "graded",
+      "role_default": "decisioning",
+      "min_data_policy": "authoritative",
+      "backing": [
+        "entity_type_match"
+      ],
+      "combinator": "single_check",
+      "result_values": [
+        "match",
+        "mismatch",
+        "not_determinable"
+      ],
+      "answer_options": [
+        "Yes",
+        "No"
+      ],
+      "from_questions": [
+        "ES1"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "entity.permitted_types",
+      "group": "Entity & Structure",
+      "text": "Which entity types are acceptable?",
+      "type": "permitted_set",
+      "role_default": "decisioning",
+      "min_data_policy": "authoritative",
+      "backing": [
+        "entity_type",
+        "formation_entity_type"
+      ],
+      "combinator": "single_check",
+      "value_space": {
+        "kind": "entity_types",
+        "cardinality": "small",
+        "control": "checkboxes"
+      },
+      "result_values": [
+        "llc",
+        "c_corp",
+        "s_corp",
+        "llp",
+        "partnership",
+        "joint_venture",
+        "sole_prop",
+        "non_profit",
+        "spv",
+        "trust"
+      ],
+      "note": "Estate, Guardianship, Representative Payee, UTMA, IRA in Mercury's 19 are not registered entity types and have no filing to classify.",
+      "from_questions": [
+        "ES1"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "tin.type",
+      "group": "EIN / TIN",
+      "text": "Is the submitted TIN an EIN or an SSN?",
+      "type": "classification",
+      "role_default": "informational",
+      "min_data_policy": "authoritative",
+      "backing": [
+        "tin_type"
+      ],
+      "combinator": "single_check",
+      "result_values": [
+        "ein",
+        "ssn_itin",
+        "invalid"
+      ],
+      "note": "Switches which name the TIN must match against. Also a sole-prop signal feeding entity.permitted_types.",
+      "from_questions": [
+        "ES2"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "tin.ein_name_match",
+      "group": "EIN / TIN",
+      "text": "Does the EIN match the business entity name?",
+      "type": "graded",
+      "role_default": "decisioning",
+      "min_data_policy": "authoritative",
+      "backing": [
+        "tin_match"
+      ],
+      "combinator": "single_check",
+      "result_values": [
+        "found",
+        "name_mismatch",
+        "not_found",
+        "error",
+        "pending"
+      ],
+      "answer_options": [
+        "Yes",
+        "No"
+      ],
+      "answer_mapping": {
+        "found": "Yes",
+        "name_mismatch": "No",
+        "not_found": "No",
+        "error": "No",
+        "pending": "No"
+      },
+      "parent_id": "tin.type",
+      "parent_answer": "ein",
+      "note": "Mismatch needs decomposition \u2014 name variance vs. TIN belonging to a different entity are different decisions. Depends on tin_error's value set, unknown.",
+      "from_questions": [
+        "ES2",
+        "EIN5"
+      ],
+      "needs_review": true
+    },
+    {
+      "id": "tin.ssn_person_match",
+      "group": "EIN / TIN",
+      "text": "Does the SSN match a name associated with the business?",
+      "type": "graded",
+      "role_default": "decisioning",
+      "min_data_policy": "authoritative",
+      "backing": [
+        "person_verification"
+      ],
+      "combinator": "single_check",
+      "result_values": [
+        "match",
+        "no_match",
+        "not_found"
+      ],
+      "answer_options": [
+        "Yes",
+        "No"
+      ],
+      "parent_id": "tin.type",
+      "parent_answer": "ssn_itin",
+      "from_questions": [
+        "ES2"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "tin.issued",
+      "group": "EIN / TIN",
+      "text": "Was the TIN ever issued by the IRS?",
+      "type": "graded",
+      "role_default": "decisioning",
+      "min_data_policy": "authoritative",
+      "backing": [
+        "tin_issued"
+      ],
+      "combinator": "single_check",
+      "result_values": [
+        "issued",
+        "not_issued",
+        "unknown"
+      ],
+      "answer_options": [
+        "Yes",
+        "No"
+      ],
+      "answer_mapping": {
+        "issued": "Yes",
+        "not_issued": "No",
+        "unknown": "No"
+      },
+      "note": "not_issued is a legitimate Deny.",
+      "from_questions": [
+        "EIN2"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "dba.registration",
+      "group": "Entity & Structure",
+      "text": "Is there a registered DBA / fictitious name filing?",
+      "type": "graded",
+      "role_default": "decisioning",
+      "min_data_policy": "authoritative",
+      "backing": [
+        "dba_filings",
+        "name_appears_personal"
+      ],
+      "combinator": "first_true",
+      "result_values": [
+        "found",
+        "not_found_required",
+        "not_found"
+      ],
+      "answer_options": [
+        "Yes",
+        "No - required and missing",
+        "No"
+      ],
+      "answer_mapping": {
+        "found": "Yes",
+        "not_found_required": "No - required and missing",
+        "not_found": "No"
+      },
+      "note": "Jurisdiction-dependent. Some states require DBA filing; not-found there is a real negative. Reusable pattern \u2014 same shape applies to sales tax permits, professional licenses, franchise tax.",
+      "from_questions": [
+        "ES3"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "web.presence_quality",
+      "group": "Entity & Structure",
+      "text": "How would you rate the business's web presence?",
+      "type": "graded",
+      "role_default": "decisioning",
+      "min_data_policy": "+web",
+      "backing": [
+        "web_quality"
+      ],
+      "combinator": "single_check",
+      "result_values": [
+        "high",
+        "moderate",
+        "low"
+      ],
+      "answer_options": [
+        "Great",
+        "Mixed",
+        "Bad"
+      ],
+      "answer_mapping": {
+        "high": "Great",
+        "moderate": "Mixed",
+        "low": "Bad"
+      },
+      "note": "Clearest case for the middle link: identical value, different vocabulary.",
+      "from_questions": [
+        "ES5",
+        "B1",
+        "B4.25"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "sos.filing_retrievable",
+      "group": "Formation Documents",
+      "text": "Is the Secretary of State filing retrievable?",
+      "type": "graded",
+      "role_default": "decisioning",
+      "min_data_policy": "authoritative",
+      "backing": [
+        "download_url"
+      ],
+      "combinator": "single_check",
+      "result_values": [
+        "available",
+        "not_available"
+      ],
+      "answer_options": [
+        "Yes",
+        "No"
+      ],
+      "note": "Retrieval, not verification. Verification is out of scope; retrieval is a near-term gap.",
+      "from_questions": [
+        "FD9.5"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "sos.name_match",
+      "group": "Formation Documents",
+      "text": "Does the SOS filing match the submitted legal name?",
+      "type": "graded",
+      "role_default": "decisioning",
+      "min_data_policy": "authoritative",
+      "backing": [
+        "name_verification"
+      ],
+      "combinator": "single_check",
+      "result_values": [
+        "exact",
+        "similar",
+        "alternate",
+        "dba_match",
+        "unverified"
+      ],
+      "answer_options": [
+        "Yes",
+        "No"
+      ],
+      "answer_mapping": {
+        "exact": "Yes",
+        "similar": "No",
+        "alternate": "No",
+        "dba_match": "No",
+        "unverified": "No"
+      },
+      "note": "Mercury's Yes/No is coarser than the five result values available.",
+      "from_questions": [
+        "FD9.6"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "sos.good_standing",
+      "group": "Formation Documents",
+      "text": "Is the SOS registration in good standing?",
+      "type": "graded",
+      "role_default": "decisioning",
+      "min_data_policy": "authoritative",
+      "backing": [
+        "sos_domestic_sub_status"
+      ],
+      "combinator": "single_check",
+      "result_values": [
+        "good_standing",
+        "delinquent",
+        "forfeited",
+        "unknown"
+      ],
+      "answer_options": [
+        "Yes",
+        "No",
+        "Can't tell"
+      ],
+      "answer_mapping": {
+        "good_standing": "Yes",
+        "delinquent": "No",
+        "forfeited": "No",
+        "unknown": "Can't tell"
+      },
+      "from_questions": [
+        "FD10"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "sos.registration_date",
+      "group": "Formation Documents",
+      "text": "Registration date",
+      "type": "field",
+      "role_default": "informational",
+      "min_data_policy": "authoritative",
+      "backing": [
+        "registration_date"
+      ],
+      "combinator": "single_check",
+      "note": "A value, not a question. Feeds time-in-business.",
+      "from_questions": [
+        "FD8.5"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "operations.foreign",
+      "group": "Operations",
+      "text": "Are foreign operations acceptable, and in which countries?",
+      "type": "permitted_set",
+      "role_default": "decisioning",
+      "min_data_policy": "authoritative",
+      "backing": [
+        "international"
+      ],
+      "combinator": "single_check",
+      "value_space": {
+        "kind": "country_codes",
+        "cardinality": "large",
+        "control": "searchable_multiselect",
+        "shares_list_with": "physical_address.restricted_country"
+      },
+      "result_values": [
+        "domestic_only",
+        "foreign_operations_detected"
+      ],
+      "note": "O1 as written asked about document authenticity and was mapped to the international flag. Rewritten to the question the flag actually answers.",
+      "from_questions": [
+        "O1"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "web.site_exists",
+      "group": "Business & Web Presence",
+      "text": "Does the business have a working website?",
+      "type": "graded",
+      "role_default": "decisioning",
+      "min_data_policy": "+web",
+      "backing": [
+        "website_verification",
+        "website_status",
+        "website_parked"
+      ],
+      "combinator": "first_true",
+      "result_values": [
+        "online",
+        "parked",
+        "offline",
+        "not_found"
+      ],
+      "answer_options": [
+        "Yes",
+        "No"
+      ],
+      "answer_mapping": {
+        "online": "Yes",
+        "parked": "No",
+        "offline": "No",
+        "not_found": "No"
+      },
+      "from_questions": [
+        "B1.1"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "web.cross_source_consistency",
+      "group": "Business & Web Presence",
+      "text": "Is the business's information consistent across web sources?",
+      "type": "graded",
+      "role_default": "decisioning",
+      "min_data_policy": "+web",
+      "backing": [
+        "profile_discovery",
+        "profile_status"
+      ],
+      "combinator": "single_check",
+      "result_values": [
+        "consistent",
+        "inconsistent",
+        "insufficient_data"
+      ],
+      "answer_options": [
+        "Yes",
+        "No"
+      ],
+      "note": "Cross-source consistency as a discrete check may not exist today.",
+      "from_questions": [
+        "B1.1"
+      ],
+      "needs_review": true
+    },
+    {
+      "id": "web.matches_application",
+      "group": "Business & Web Presence",
+      "text": "Does the information on the website match what was submitted?",
+      "type": "graded",
+      "role_default": "decisioning",
+      "min_data_policy": "+web",
+      "backing": [
+        "web_business_name_verification",
+        "web_address_verification",
+        "web_phone_verification",
+        "web_email_address_verification"
+      ],
+      "combinator": "first_true",
+      "result_values": [
+        "all_match",
+        "partial_match",
+        "no_match"
+      ],
+      "answer_options": [
+        "Yes",
+        "No"
+      ],
+      "from_questions": [
+        "B1.1"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "web.domain_linkage",
+      "group": "Business & Web Presence",
+      "text": "Can the domain be connected to this business?",
+      "type": "graded",
+      "role_default": "decisioning",
+      "min_data_policy": "+web",
+      "backing": [
+        "website_url_domain_ownership",
+        "domain_consistency"
+      ],
+      "combinator": "first_true",
+      "result_values": [
+        "ownership_confirmed",
+        "consistent_only",
+        "weak",
+        "no_linkage"
+      ],
+      "answer_options": [
+        "Yes",
+        "No"
+      ],
+      "answer_mapping": {
+        "ownership_confirmed": "Yes",
+        "consistent_only": "Yes",
+        "weak": "No",
+        "no_linkage": "No"
+      },
+      "note": "Absorbs B2's intent. Supports 'we could not confirm this site belongs to this business' \u2014 NOT 'this site appears spoofed'.",
+      "from_questions": [
+        "B1.75",
+        "B1.1",
+        "B2"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "web.url_consistency",
+      "group": "Business & Web Presence",
+      "text": "Are the domain and handles consistent with the application?",
+      "type": "graded",
+      "role_default": "decisioning",
+      "min_data_policy": "+web",
+      "backing": [
+        "domain_redirect",
+        "domain_consistency"
+      ],
+      "combinator": "first_true",
+      "result_values": [
+        "consistent",
+        "redirected",
+        "shortener",
+        "inconsistent"
+      ],
+      "answer_options": [
+        "Yes",
+        "No"
+      ],
+      "from_questions": [
+        "B1.1"
+      ],
+      "needs_review": false
+    },
+    {
+      "id": "web.domain_reputation",
+      "group": "Business & Web Presence",
+      "text": "Does the domain have adverse reputation flags?",
+      "type": "graded",
+      "role_default": "decisioning",
+      "min_data_policy": "+web",
+      "backing": [
+        "url_risk"
+      ],
+      "combinator": "single_check",
+      "result_values": [
+        "clean",
+        "suspicious",
+        "parking",
+        "spamming",
+        "malware",
+        "phishing"
+      ],
+      "answer_options": [
+        "Yes",
+        "No"
+      ],
+      "note": "IPQS data is collected, stored on website.metadata['url_risk'], serialized and rendered \u2014 but no review task consumes it. Grading it is a scoring change over stored data, not a new dependency.",
+      "from_questions": [
+        "B2"
+      ],
+      "needs_review": true
+    },
+    {
+      "id": "adverse_media.categories",
+      "group": "Business & Web Presence",
+      "text": "Which adverse media categories are material?",
+      "type": "permitted_set",
+      "role_default": "decisioning",
+      "min_data_policy": "+web",
+      "backing": [
+        "adverse_media",
+        "adverse_media.risk_scores"
+      ],
+      "combinator": "single_check",
+      "value_space": {
+        "kind": "adverse_media_categories",
+        "cardinality": "medium",
+        "control": "grouped_checkboxes",
+        "groups": [
+          {
+            "name": "crime_typologies",
+            "count": 12
+          },
+          {
+            "name": "high_risk_industries",
+            "count": 18
+          }
+        ],
+        "threshold": "one per list, not per category"
+      },
+      "result_values": [
+        "no_hits",
+        "below_threshold",
+        "category_hit"
+      ],
+      "answer_options": [
+        "Personal violent crimes",
+        "Drug trafficking (non-cannabis)",
+        "Financial crimes",
+        "Other major criminal activity",
+        "Other minor criminal activity",
+        "None of the above"
+      ],
+      "answer_mapping": {
+        "narcotics": "Drug trafficking (non-cannabis)",
+        "money_laundering": "Financial crimes",
+        "fraud_bribery_corruption": "Financial crimes",
+        "insider_trading": "Financial crimes",
+        "tax_evasion": "Financial crimes",
+        "organized_crime": "Other major criminal activity",
+        "human_trafficking": "Other major criminal activity",
+        "weapons_sales_trade": "Other major criminal activity",
+        "__no_backing__": "Personal violent crimes"
+      },
+      "note": "DEMO CENTERPIECE. 30 category floats are stored; the check collapses to max() and thresholds, discarding category identity \u2014 money_laundering at 0.7 and casinos at 0.7 are indistinguishable today. No violent_crime category exists in the taxonomy; that gap should be shown, not hidden. The 18 industry categories also feed industry.lists.",
+      "from_questions": [
+        "B10.25"
+      ],
+      "needs_review": false
+    }
+  ]
+}

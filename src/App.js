@@ -30,6 +30,9 @@ const REPORT_C_VERSIONS=[
   {date:'Oct 4, 2025',decision:'Manual review',tone:'elev',who:'Dana Melas',note:'Initial report ordered; name mismatch against state filings.'},
 ];
 import { AttributesPanel, SourcesPanel, ApiResponsePanel } from './report/reportCPanels.jsx';
+import PolicyBuilder from './policy/builder.jsx';
+import { WORKFLOW_A, WORKFLOW_B, UNITS as WF_UNITS, cloneWorkflow } from './policy/workflows.js';
+import { checkLabel as wfCheckLabel } from './policy/evaluate.js';
 import middeskBusiness from './report/business.json';
 
 /* Identity Intelligence — ported from the Claude Design prototype
@@ -37,7 +40,7 @@ import middeskBusiness from './report/business.json';
    class inside the dc-runtime; this is the same component on plain
    React.Component with the template's wrapper div as render(). */
 export default class App extends React.Component {
-  state = { direction:'A', view:'identity', timeIdx:5, sel:null, query:'address', expandedQ:0, showPath:true, intelQ:'', intelOpen:false, ingestedDoc:null, policy:null, openSec:null, openQ:null, attnOnly:false, decisionsOpen:false, attrsOpen:false, secOpen:{}, chats:[], activeChat:null, chatSeq:0, chatInput:'', netMode:'graph', asOf:null, activeId:'vela', openTabs:[], theme:'light', envMode:'live' };
+  state = { direction:'A', view:'identity', timeIdx:5, sel:null, query:'address', expandedQ:0, showPath:true, intelQ:'', intelOpen:false, ingestedDoc:null, policy:null, openSec:null, openQ:null, attnOnly:false, decisionsOpen:false, attrsOpen:false, secOpen:{}, chats:[], activeChat:null, chatSeq:0, chatInput:'', netMode:'graph', asOf:null, activeId:'vela', openTabs:[], theme:'light', envMode:'live', ob:{msgs:[],answers:{},done:false,busy:null,stage:null,useCase:'Credit & Underwriting',custom:{},otherInput:'',rules:{},ruleMulti:{},scenario:'default',groupNotes:{},drafts:[],draftSel:0} };
 
   componentDidMount(){
     let s={};
@@ -45,9 +48,16 @@ export default class App extends React.Component {
     try{ const ui=JSON.parse(localStorage.getItem('mid-ui')||'{}');
       this.setState({theme:ui.theme||'light', envMode:ui.envMode||'live'});
       if(ui.theme==='dark') document.body.setAttribute('data-theme','dark'); }catch(e){}
+    // A deep URL wins over the persisted view.
+    const path=window.location.pathname;
+    const pathView = /^\/policies/.test(path)?'policies'
+      : /^\/identities\/./.test(path)?'identity'
+      : /^\/identities/.test(path)?'list'
+      : /^\/report/.test(path)?'reportC'
+      : /^\/intelligence/.test(path)?'intelligence' : null;
     this.setState({
       direction: s.direction || this.props.startDirection || 'C',
-      view: s.view || this.props.startView || 'intelligence',
+      view: pathView || s.view || this.props.startView || 'intelligence',
       timeIdx: (s.timeIdx ?? 5),
       query: s.query || 'address',
       showPath: this.props.showRiskPath !== false,
@@ -72,6 +82,17 @@ export default class App extends React.Component {
       try{ const o={}; KEYS.forEach(k=>o[k]=this.state[k]);
         localStorage.setItem('mid-iv', JSON.stringify(o)); }catch(e){}
     }
+    this.reflectUrl();
+  }
+  // Keep the address bar honest about where the user is.
+  reflectUrl(){
+    const {view,activeId}=this.state;
+    const path = view==='identity' ? '/identities/'+(activeId||'')
+      : view==='list' ? '/identities'
+      : view==='policies' ? '/policies'
+      : view==='reportC' ? '/report'
+      : '/intelligence';
+    try{ if(window.location.pathname!==path) window.history.replaceState(null,'',path); }catch(e){}
   }
   openIdentity(id){
     this.setState(s=>({ openTabs: s.openTabs.includes(id)?s.openTabs:[...s.openTabs,id], activeId:id, asOf:null, secOpen:{}, openQ:null, attnOnly:false }));
@@ -488,14 +509,11 @@ export default class App extends React.Component {
           h('svg',{width:25,height:14,viewBox:'0 0 30 16',fill:'currentColor',style:{flexShrink:0}}, h('path',{d:'M14.868 15.99V15.995H17.8334V13.2048V13.2011H17.8294L4.14417 0H1.18008V2.79517L14.868 15.99ZM0 15.995H4.48643V11.7661H0V15.995ZM26.7415 15.99V15.995H29.7069V13.2048V13.2011H29.7029L22.8603 6.60055L16.0177 0H13.0536V2.79517L26.7415 15.99Z'})),
           h('span',{style:{fontSize:15,fontWeight:600,letterSpacing:'-.01em'}},'Middesk')),
         h('div',{style:{display:'flex',alignItems:'center',gap:2}},
-          h(IconActionButton,{variant:'quiet','aria-label':'Search (⌘K)',title:'Search (⌘K)',onClick:()=>this.newChat()}, this.navIcon('search')),
-          h(IconActionButton,{variant:'quiet','aria-label':'Hide navigation',title:'Hide navigation',onClick:()=>this.setState({navDrawer:false})}, this.navIcon('panelLeft')))),
+          h(IconActionButton,{variant:'quiet','aria-label':'Search (⌘K)',title:'Search (⌘K)',onClick:()=>this.newChat()}, this.navIcon('search')))),
       h('nav',{style:{display:'flex',flexDirection:'column',gap:4,padding:'8px 8px 16px',flex:1,minHeight:0,overflowY:'auto'}},
         item('Intelligence','sparkles', view==='intelligence', ()=>this.newChat()),
         item('Identities','building', view==='list'||view==='identity', ()=>this.setS({view:'list'})),
-        item('Report A','fileText', view==='report', ()=>this.setS({view:'report'})),
-        item('Report B','fileText', view==='reportB', ()=>this.setS({view:'reportB'})),
-        item('Report C','fileText', view==='reportC', ()=>this.setS({view:'reportC'}))),
+        item('Policies','fileText', view==='policies', ()=>this.setS({view:'policies'}))),
       // footer — account row (mt-auto, border-t divider, p-2) with a popover user menu
       h('div',{style:{marginTop:'auto',borderTop:'1px solid var(--core-color-border-divider)',padding:8,flexShrink:0}},
         (function(self){
@@ -528,39 +546,6 @@ export default class App extends React.Component {
               h(MenuItem,{style:{justifyContent:'space-between',minHeight:40,padding:'8px 12px',fontSize:13}},'Log out',
                 h('span',{style:{display:'inline-flex',alignItems:'center',color:'var(--core-color-text-muted)'}},self.navIcon('logout',15)))));
         })(this)));
-  }
-  Topbar(){
-    const h=React.createElement; const self=this; const {view,direction}=this.state;
-    const isIntel = view==='intelligence'; const isList = view==='list'; const isIdent = view==='identity';
-    const openTabs = this.state.openTabs||[]; const chats = this.state.chats||[];
-    const tab=(k,label,active,onClick,onClose)=> h('div',{key:k,onClick,style:{display:'inline-flex',alignItems:'center',gap:6,padding:'5px 10px',minHeight:28,borderRadius:8,cursor:'pointer',fontSize:12.5,fontWeight:active?600:400,whiteSpace:'nowrap',color:active?'var(--core-color-text-primary)':'var(--core-color-text-muted)',background:active?'var(--core-color-state-selected-bg)':'transparent',border:'1px solid '+(active?'var(--core-color-border-default)':'transparent'),flexShrink:0}},
-      h('span',{style:{maxWidth:160,overflow:'hidden',textOverflow:'ellipsis'}},label),
-      onClose ? h('span',{onClick:(e)=>{e.stopPropagation(); onClose();},'aria-label':'Close '+label,style:{display:'grid',placeItems:'center',width:14,height:14,borderRadius:4,fontSize:12,lineHeight:1,color:'var(--core-color-text-muted)'}},'×') : null);
-    // root dropdown — switch between the two workspaces (Intelligence / Identities)
-    const rootLabel = isIntel ? 'Intelligence' : 'Identities';
-    const rootActive = isList || (isIntel && !this.state.activeChat);
-    const rootDrop = h(Menu,{open:!!this.state.rootMenu,onOpenChange:(o)=>this.setState({rootMenu:o})},
-      h(MenuTrigger,{asChild:true},
-        h('button',{style:{display:'inline-flex',alignItems:'center',gap:6,padding:'5px 10px',minHeight:28,borderRadius:8,cursor:'pointer',fontFamily:'inherit',fontSize:12.5,fontWeight:rootActive?600:400,whiteSpace:'nowrap',color:rootActive?'var(--core-color-text-primary)':'var(--core-color-text-muted)',background:rootActive?'var(--core-color-state-selected-bg)':'transparent',border:'1px solid '+(rootActive?'var(--core-color-border-default)':'transparent'),flexShrink:0}},
-          h('span',null,rootLabel),
-          h('span',{style:{display:'grid',placeItems:'center',width:14,height:14,transform:'rotate(180deg)',color:'var(--core-color-text-muted)'}}, this.navIcon('chevronUp')))),
-      h(MenuContent,{align:'start',themeMode:this.state.theme==='dark'?'dark':'light',style:{minWidth:170}},
-        h(MenuItem,{onSelect:()=>self.newChat()},'Intelligence'),
-        h(MenuItem,{onSelect:()=>self.setS({view:'list'})},'Identities')));
-    const navToggle = this.state.navDrawer ? null : h(IconActionButton,{variant:'quiet','aria-label':'Show navigation',title:'Show navigation',onClick:()=>this.setState({navDrawer:true}),style:{flexShrink:0,marginRight:10}},
-      this.navIcon('panelLeft'));
-    return h('header',{style:{position:'sticky',top:0,zIndex:5,background:'color-mix(in srgb, var(--core-color-surface-canvas) 88%, transparent)',backdropFilter:'blur(8px)',WebkitBackdropFilter:'blur(8px)',borderBottom:'1px solid var(--core-color-border-default)',padding:'9px 28px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:20}},
-      h('div',{style:{display:'flex',alignItems:'center',gap:4,minWidth:0,flex:1}},
-        navToggle,
-        this.state.navDrawer ? null : rootDrop,
-        h('div',{style:{display:'flex',alignItems:'center',gap:4,minWidth:0,overflowX:'auto'}},
-          ...openTabs.map(id=> tab('id-'+id, self.PROFILES[id].name, isIdent&&self.activeId===id, ()=>self.openIdentity(id), ()=>self.closeTab(id))),
-          ...chats.map(c=> tab(c.id, c.title, isIntel&&self.state.activeChat===c.id, ()=>{ self.setState({activeChat:c.id}); self.setS({view:'intelligence'}); }, ()=>self.closeChat(c.id))))),
-      h('div',{style:{display:'flex',alignItems:'center',gap:14,flexShrink:0}},
-        isIntel && this.state.activeChat
-          ? h(ActionButton,{variant:'quiet',onClick:()=>self.newChat(),style:{flexShrink:0}},
-              h('span',{style:{fontSize:14,lineHeight:1}},'+'),'Ask something else')
-          : null));
   }
 
   /* ---------- shared hero ---------- */
@@ -1150,6 +1135,741 @@ export default class App extends React.Component {
     }, ()=>{ const el=document.getElementById('intel-msgs'); if(el) setTimeout(()=>el.scrollTo({top:el.scrollHeight,behavior:'smooth'}),60); }); }
   openIntel(text){ this.setState({activeChat:null}); this.setS({view:'intelligence'}); this.askIntel(text); }
 
+  /* ---------- first-time user experience ----------
+     The empty Intelligence screen doubles as onboarding: the agent asks for
+     business + use case context, identifies the use case, asks clarifying
+     policy questions, runs test scenarios, and recommends a starter policy.
+     Branches: can't identify → white glove; not relevant → bespoke questions. */
+  get onboarding(){ return (this.state.chats||[]).length===0; }
+  // Options are grounded in what the Middesk platform supports, scoped to the
+  // KYB products only (KYC screening and Risk products are out of scope for
+  // this flow): entity types Middesk verifies, and KYB verification sources
+  // (SoS registrations, IRS TIN, website, licenses/certifications, documents).
+  get OB_ORG_TYPES(){ return ['C/S-Corporations','LLCs','Partnerships (LP/LLP)','Sole proprietors','Nonprofits']; }
+  get OB_USECASES(){ return ['Credit & Underwriting','Onboarding & KYB compliance','Payments enablement','Lending','Marketplace onboarding']; }
+  get obUseCase(){ return this.state.ob.useCase||'Credit & Underwriting'; }
+  get obUseCaseLc(){ return this.obUseCase.toLowerCase().replace(/&/g,'and'); }
+  get OB_SOURCES(){ return ['Authoritative SoS registrations','IRS TIN match','Web search & presence','Licenses & certifications','Industry classification','Documents','I am not sure']; }
+  /* Deep-dive questions, taken verbatim from the analyst tooling question
+     bank (questions.csv, KYB rows only). Each carries its Middesk attribute
+     mapping; questions with an `auto` value can be answered automatically
+     from Middesk data. `soleProp` questions only appear when sole
+     proprietors are being onboarded. */
+  /* Each verification area breaks down into policy rules: a condition a check
+     can surface, and the outcome the policy takes when it does. Conditions are
+     derived from the analyst question bank (questions.csv) and each carries
+     its Middesk attribute mapping. Anything that passes clean is accepted;
+     the user configures what happens when a check comes back short. */
+  /* The survey configures the same unit catalog the Policies builder edits
+     (src/policy/units_seed.json). Groups come straight from the seed; the
+     survey sets each unit's role, and Create emits a real workflow config. */
+  get OB_GROUPS(){
+    const groups=[]; const seen={};
+    for(const u of WF_UNITS){
+      if(!seen[u.group]){ seen[u.group]={g:u.group,units:[]}; groups.push(seen[u.group]); }
+      seen[u.group].units.push(u);
+    }
+    return groups.map(g=>({...g,
+      desc:g.units.slice(0,2).map(u=>u.text.replace(/\?$/,'')).join(' · ')+(g.units.length>2?' · …':''),
+      prod:[...new Set(g.units.flatMap(u=>u.backing||[]))].length+' Middesk checks · '+g.units.length+' units'}));
+  }
+  // Per-unit survey config: one flat outcome per check — deny / review /
+  // approve / remove. Deny and review drive the verdict when the check fails,
+  // approve keeps the finding without acting on it, remove takes the check
+  // out of the workflow. Defaults are read off the scenario's base config.
+  obUnitOutcomeOf(cfg){
+    if(!cfg||!cfg.enabled) return 'remove';
+    if(cfg.role!=='decisioning') return 'approve';
+    if(cfg.permitted&&cfg.permitted.mode==='lists') return (cfg.permitted.lists&&(cfg.permitted.lists.knock_out||[]).length)?'deny':'review';
+    const decs=cfg.graded?Object.values(cfg.graded):[(cfg.permitted&&cfg.permitted.outcome)||'review'];
+    return decs.includes('deny')?'deny':'review';
+  }
+  obUnitCfg(u){
+    const o=(this.state.ob.wfUnits||{})[u.id];
+    if(o) return o;
+    const base=(this.state.ob.scenario==='uber'?WORKFLOW_B:WORKFLOW_A).units[u.id];
+    return {outcome:this.obUnitOutcomeOf(base)};
+  }
+  obSetUnitCfg(id,outcome){ this.setState(s=>({ob:{...s.ob,wfUnits:{...(s.ob.wfUnits||{}),[id]:{outcome}}}})); }
+  // Plain-language line for what a unit's configuration actually decides,
+  // derived straight from the workflow config so it always matches the builder.
+  obUnitDecides(cfg){
+    if(!cfg) return null;
+    const pretty=v=>String(v).replace(/_/g,' ');
+    const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
+    if(cfg.role==='informational') return 'Approves regardless; the finding is kept with its evidence.';
+    if(cfg.role!=='decisioning') return null;
+    if(cfg.graded){
+      const by={};
+      for(const [ans,dec] of Object.entries(cfg.graded)) if(dec!=='approve') (by[dec]=by[dec]||[]).push(ans);
+      const parts=Object.entries(by).map(([dec,ans])=>cap(dec)+' when '+ans.map(a=>'“'+pretty(a)+'”').join(' or '));
+      return parts.length?parts.join(' · ')+' · everything else approves':'Every answer approves as configured.';
+    }
+    const p=cfg.permitted;
+    if(!p) return null;
+    if(p.mode==='allowed') return 'Accepted: '+(p.allowed||[]).map(pretty).join(', ')+' · anything else goes to '+pretty(p.outcome||'review');
+    if(p.mode==='denied') return (p.denied||[]).length?cap(pretty(p.outcome||'deny'))+' when the value is on the list: '+(p.denied||[]).join(', '):'Deny list is empty; every value passes.';
+    if(p.mode==='lists'){ const l=p.lists||{}; return Object.entries(l).map(([n,vs])=>pretty(n)+' ('+vs.length+')').join(' · ')+' · knock-out denies, restricted reviews, target approves'; }
+    if(p.mode==='material') return (p.materialGroups||[]).length?cap(pretty(p.outcome||'review'))+' on a hit in material categories: '+(p.materialGroups||[]).map(pretty).join(', ')+' · other categories stay findings':'No categories marked material; hits stay findings.';
+    return null;
+  }
+  // Sources → the workflow's cumulative data-policy tier.
+  get obDraftTier(){
+    const src=this.state.ob.sources||[];
+    if(!src.length||src.includes('I am not sure')||src.includes('Web search & presence')||src.includes('Industry classification')) return '+web';
+    if(src.includes('Licenses & certifications')) return '+gov';
+    return 'authoritative';
+  }
+  // The workflow this run has configured so far, built on the scenario base.
+  obDraftWorkflow(){
+    const base=this.state.ob.scenario==='uber'?WORKFLOW_B:WORKFLOW_A;
+    const wf=cloneWorkflow(base);
+    wf.dataPolicy=this.obDraftTier;
+    const picked=this.state.ob.groupsSel||[];
+    for(const u of WF_UNITS){
+      const o=(this.state.ob.wfUnits||{})[u.id];
+      const baseCfg=wf.units[u.id];
+      const cfg={...baseCfg,enabled:picked.includes(u.group)&&baseCfg.enabled};
+      if(o){
+        if(o.outcome==='remove') cfg.enabled=false;
+        else{
+          cfg.enabled=picked.includes(u.group);
+          if(o.outcome==='approve') cfg.role='informational';
+          else{
+            cfg.role='decisioning';
+            if(cfg.graded){ const g={...cfg.graded}; for(const k of Object.keys(g)) if(g[k]!=='approve') g[k]=o.outcome; cfg.graded=g; }
+            if(cfg.permitted&&cfg.permitted.mode!=='lists') cfg.permitted={...cfg.permitted,outcome:o.outcome};
+          }
+        }
+      }
+      wf.units[u.id]=cfg;
+    }
+    return wf;
+  }
+  get OB_SCENARIOS(){ return this.state.ob.scenario==='uber'?this.OB_SCENARIOS_UBER:this.OB_SCENARIOS_DEFAULT; }
+  /* Merchant test scenarios and their decisions, from the user's sheet. The
+     shared review rationale: manual review whenever we can't verify (1) the
+     business is a real entity, (2) the user is associated with it, and
+     (3) it's permitted to sell food. */
+  get OB_SCENARIOS_UBER(){
+    const REVIEW_NOTE='Manual review when we can’t verify the business is real, the applicant is associated with it, and it’s permitted to sell food.';
+    return [
+      ['7-year LLC in good standing; sole owner on filings; one settled wage-dispute press piece','Pass','clear',null,
+        {attrs:[['registrations.status','Active · Good standing'],['registration_date','2019'],['certifications.food_permit','Valid'],['health_inspection','Pass'],['adverse_media','1 low-risk article']],rules:['adverse_media.categories']}],
+      ['LLC formed 6 weeks ago; permit filed but not issued; buildout visible, no web presence yet','Manual review','watch',REVIEW_NOTE,
+        {attrs:[['registration_date','6 weeks ago'],['certifications.food_permit','Application pending'],['website','Not found'],['addresses.imagery','Active buildout']],rules:['sos.registration_date','web.site_exists']}],
+      ['Sole prop with a valid cottage food permit, cooking from a residential home kitchen (TX)','Fail','high','We do not want merchants that operate out of home.',
+        {attrs:[['entity_type','Sole proprietorship (county DBA)'],['addresses.address_type','Residential'],['certifications.cottage_food','Valid (TX)'],['website','None']],rules:['physical_address.permitted_types','web.site_exists']}],
+      ['8-month LLC in a ghost kitchen; facility permit only, no independent permit or web presence','Manual review','watch',REVIEW_NOTE,
+        {attrs:[['registration_date','8 months ago'],['addresses.shared','14 businesses at address'],['certifications.food_permit','Facility-level only'],['website','Delivery platforms only']],rules:['physical_address.entity_linkage','web.site_exists']}],
+      ['Established restaurant; applicant is the GM, not on filings but named on the company website','Pass','clear',null,
+        {attrs:[['registrations.status','Active · 5 years'],['people.officer_match','Not on filings'],['website','Applicant listed as GM'],['health_inspection','Pass']],rules:['web.matches_application']}],
+      ['Franchise of a national QSR chain; parent brand had a food safety recall last week','Pass','clear',null,
+        {attrs:[['registrations.status','Active · 2 years'],['people.officer_match','Confirmed owner'],['adverse_media','Parent brand recall'],['addresses.imagery','Branded storefront']],rules:['adverse_media.categories']}],
+      ['6-year LLC; adverse media ties applicant to a dissolved prior restaurant at the same address','Pass','clear',null,
+        {attrs:[['registrations.status','Active · 6 years'],['adverse_media','18-month-old article'],['connections.prior_entity','Dissolved at same address'],['health_inspection','Pass']],rules:['adverse_media.categories']}],
+      ['3-month LLC at a mixed-use address; no permit on file, VoIP phone, a cluster of young/thin signals','Manual review','watch',REVIEW_NOTE,
+        {attrs:[['registration_date','3 months ago'],['addresses.address_type','Mixed-use'],['certifications.food_permit','None on file'],['phone_numbers','VoIP line'],['website','Not found']],rules:['sos.registration_date','web.site_exists']}],
+      ['6-year LLC; Yelp shows a full bar with craft cocktails, no active liquor license found','Pass','clear',null,
+        {attrs:[['registrations.status','Active · 6 years'],['certifications.food_permit','Valid'],['certifications.liquor_license','Not found'],['reviews','4.2 stars · 300+']],rules:[]}],
+      ['Permit, state filing, and operating addresses are three different addresses in the same metro','Manual review','watch',REVIEW_NOTE,
+        {attrs:[['certifications.address','≠ operating address'],['registrations.registered_address','≠ operating address'],['addresses.imagery','Active restaurant']],rules:['physical_address.match']}],
+    ];
+  }
+  // Evaluate a scenario's tripped rules against the policy as configured:
+  // worst outcome wins, mapped into the scenario decision vocabulary.
+  // Evaluate a scenario's tripped units against the workflow as configured
+  // in this run: skip off/informational units; a tripped decisioning unit
+  // escalates to the worst decision its configuration can reach.
+  obScnEval(sc){
+    const sig=sc[4]; if(!sig) return null;
+    const wf=this.obDraftWorkflow();
+    const rank={approve:0,review:1,deny:2};
+    const rules=[];
+    for(const id of (sig.rules||[])){
+      const unit=WF_UNITS.find(u=>u.id===id); if(!unit) continue;
+      const cfg=wf.units[id];
+      if(!cfg||!cfg.enabled){ rules.push([unit.text,'removed']); continue; }
+      if(cfg.role!=='decisioning'){ rules.push([unit.text,'approve']); continue; }
+      let sev=0;
+      if(cfg.graded) sev=Math.max(...Object.values(cfg.graded).map(d=>rank[d]||0),0);
+      if(cfg.permitted) sev=Math.max(sev,rank[cfg.permitted.outcome||'review']||0);
+      rules.push([unit.text,['approve','review','deny'][sev]]);
+    }
+    const worst=rules.reduce((w,[,d])=>Math.max(w,rank[d]||0),0);
+    const verdict=['Pass','Manual review','Fail'][worst];
+    return {attrs:sig.attrs||[],rules,verdict};
+  }
+  get OB_SCENARIOS_DEFAULT(){ return [
+    ['Sole prop with EIN issued and matched','Pass','clear'],
+    ['EIN provided but IRS name mismatch','Review','watch'],
+    ['DBA document valid and current','Pass','clear'],
+    ['DBA lapsed or missing at intake','Review','watch'],
+    ['Strong web presence, consistent identity','Pass','clear'],
+    ['Thin web presence, no site found','Review','watch'],
+    ['Company type conflicts with SoS filing','Review','watch'],
+    ['Registered and in good standing','Pass','clear'],
+    ['Watchlist near-match on owner name','Flag','elev'],
+    ['Formed within the last 6 months','Flag','elev'],
+  ]; }
+  obScroll(){ const el=document.getElementById('intel-msgs'); if(el) setTimeout(()=>el.scrollTo({top:el.scrollHeight,behavior:'smooth'}),60); }
+  obPush(msg,cb){ this.setState(s=>{
+    let msgs=s.ob.msgs;
+    // When the agent replies, the live thinking block settles into the
+    // thread as a collapsed, expandable trace item.
+    if(msg.role==='agent'&&s.ob.busy) msgs=[...msgs,{role:'trace',title:s.ob.busy.title,steps:s.ob.busy.steps}];
+    const patch={ob:{...s.ob,msgs:[...msgs,msg]}};
+    if(msg.role==='agent'){ patch.ob.busy=null; if(this._obTimer){ clearInterval(this._obTimer); this._obTimer=null; } }
+    // Stage transitions drive the clarifying-question popup above the composer.
+    if(msg.kind==='identify') patch.ob.stage='orgTypes';
+    else if(msg.kind==='sources') patch.ob.stage='sources';
+    else if(msg.role==='agent') patch.ob.stage=null;
+    return patch;
+  },()=>{ this.obScroll(); if(cb) cb(); }); }
+  obAgent(msg,delay){ setTimeout(()=>this.obPush({role:'agent',...msg}), delay==null?650:delay); }
+  // LLM-style progress: staged status lines under a collapsible title,
+  // shown while the agent "works".
+  obThink(title,steps,stepMs){
+    if(this._obTimer){ clearInterval(this._obTimer); this._obTimer=null; }
+    this.setState(s=>({ob:{...s.ob,busy:{title,steps,shown:1,open:false}}}),()=>this.obScroll());
+    this._obTimer=setInterval(()=>{
+      this.setState(s=>{
+        const b=s.ob.busy; if(!b||b.shown>=b.steps.length){ if(this._obTimer){ clearInterval(this._obTimer); this._obTimer=null; } return null; }
+        return {ob:{...s.ob,busy:{...b,shown:b.shown+1}}};
+      },()=>this.obScroll());
+    }, stepMs||750);
+  }
+  obSend(text){ const t=(text||'').trim(); if(!t) return;
+    this.setState({chatInput:''}); if(this._chatTa) this._chatTa.style.height='auto';
+    this.obPush({role:'user',text:t});
+    const m=t.match(/(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+)\.[a-z]{2,}(?:\/\S*)?/i);
+    if(m){
+      const domain=m[0].replace(/^https?:\/\//i,'').replace(/^www\./i,'').split('/')[0];
+      const raw=m[1]; const company=raw.charAt(0).toUpperCase()+raw.slice(1);
+      // ubereats.com triggers the marketplace scenario; a URL after a
+      // completed run starts a fresh policy run (drafts and thread survive).
+      const scenario=/ubereats/i.test(domain)?'uber':'default';
+      this.setState(s=>({ob:{...s.ob,
+        scenario,
+        useCase:scenario==='uber'?'Marketplace onboarding':s.ob.useCase,
+        orgTypes:[],sources:[],groupsSel:[],rules:{},ruleMulti:{},wfUnits:{},custom:{},answers:{},groupNotes:{},stage:null,done:false,ucOpen:false}}));
+      this.obThink('Identifying use case',['Reading '+domain,'Understanding business context','Searching available entity records','Identifying closest use case match','Drafting policy questions'],650);
+      this.obAgent({kind:'identify',company,domain,uc:scenario==='uber'?'Marketplace onboarding':'Credit & Underwriting'},3600);
+    } else if(t.length>=40){
+      this.obThink('Identifying use case',['Reading your description','Understanding business context','Identifying closest use case match','Drafting policy questions']);
+      this.obAgent({kind:'identify',company:null},3200);
+    } else {
+      this.obThink('Identifying use case',['Searching for a matching business']);
+      this.obAgent({kind:'cantIdentify'},1600);
+    }
+  }
+  obToggle(key,val){
+    this.setState(s=>{
+      const cur=s.ob[key]||[];
+      let next;
+      if(cur.includes(val)) next=cur.filter(x=>x!==val);
+      // "I am not sure" is exclusive: it clears other picks, and picking
+      // anything else clears it.
+      else if(val==='I am not sure') next=[val];
+      else next=[...cur.filter(x=>x!=='I am not sure'),val];
+      return {ob:{...s.ob,[key]:next}};
+    });
+  }
+  // The survey's configuring steps: the question areas the user selected,
+  // filtered to the active question set.
+  get obActiveGroups(){
+    const picked=this.state.ob.groupsSel||[];
+    return this.OB_GROUPS.filter(g=>picked.includes(g.g));
+  }
+  get obStages(){
+    // Before any areas are picked, count as if all will be configured so the
+    // step total doesn't start artificially low.
+    const groups=(this.state.ob.groupsSel||[]).length?this.obActiveGroups:this.OB_GROUPS;
+    return ['orgTypes','sources','groups',...groups.map((_,i)=>'g'+i)];
+  }
+  // Survey complete: spit the results out into the chat. The output message
+  // carries a resolved snapshot so later runs can't rewrite it.
+  obFinishSurvey(){
+    if(this.state.ob.busy) return;
+    const draft=this.obCurrentDraft(); const scenarios=this.OB_SCENARIOS;
+    this.obThink('Assembling your policy',['Scoring your answers against similar programs','Mapping your selections to Middesk checks','Assembling a policy recommendation']);
+    this.obAgent({kind:'output',draft,scenarios},2800);
+  }
+  obAnswer(qid,val){
+    this.setState(s=>{
+      const answers={...s.ob.answers};
+      if(answers[qid]===val) delete answers[qid]; else answers[qid]=val;
+      return {ob:{...s.ob,answers}};
+    }); }
+  obNotRelevant(){ if(!this.state.ob.msgs.some(m=>m.kind==='bespoke')) this.obAgent({kind:'bespoke'},400); }
+  obWhiteGlove(){ if(!this.state.ob.msgs.some(m=>m.kind==='whiteGlove')) this.obAgent({kind:'whiteGlove'},400); }
+  // Resolve the current run into a plain snapshot (used for drafts and the
+  // Policies page fallback).
+  obCurrentDraft(){
+    const wf=this.obDraftWorkflow();
+    const groups=this.obActiveGroups.map(g=>({g:g.g,notes:(this.state.ob.groupNotes||{})[g.g]||'',
+      units:g.units.map(u=>({id:u.id,text:u.text,outcome:this.obUnitOutcomeOf(wf.units[u.id])}))}));
+    const enabled=WF_UNITS.filter(u=>wf.units[u.id].enabled);
+    const prods=[...new Set(enabled.flatMap(u=>u.backing||[]))];
+    return {name:this.obUseCase+' starter policy',useCase:this.obUseCase,created:'Aug 18, 2026',status:'Draft',scenario:this.state.ob.scenario,
+      orgTypes:[...(this.state.ob.orgTypes||[])],sources:[...(this.state.ob.sources||[])],tier:wf.dataPolicy,prods,groups,workflow:wf};
+  }
+  /* Completed policies that ship with the account, so the Policies section
+     has content even before the Intelligence onboarding runs. They open in
+     the builder on the demo workflows. */
+  get obSeedPolicies(){
+    return [
+      {name:'Marketplace onboarding starter policy',useCase:'Marketplace onboarding',created:'Jul 22, 2026',status:'Active',scenario:'uber',
+        orgTypes:['LLCs','Sole proprietors'],sources:['Authoritative SoS registrations','Licenses & certifications','Web search & presence']},
+      {name:'Credit & Underwriting starter policy',useCase:'Credit & Underwriting',created:'Jun 03, 2026',status:'Active',scenario:'default',
+        orgTypes:['C/S-Corporations','LLCs','Sole proprietors'],sources:['Authoritative SoS registrations','IRS TIN match','Documents']},
+    ];
+  }
+  obCreatePolicy(){
+    if(this.state.ob.done) return;
+    const draft=this.obCurrentDraft();
+    this.setState(s=>({ob:{...s.ob,done:true,drafts:[draft,...(s.ob.drafts||[])],draftSel:0}}));
+    this.obAgent({kind:'created',uc:draft.useCase},400);
+  }
+  /* Scenario-rating review: show how the policy would rate the test
+     scenarios (with the Middesk signals behind each) and let the user
+     correct anything wrong. */
+  obOpenScnReview(){
+    const out=[...this.state.ob.msgs].reverse().find(m=>m.kind==='output');
+    const list=(out&&out.scenarios)||this.OB_SCENARIOS;
+    this.setState(s=>({ob:{...s.ob,scnList:list,scnFix:{},stage:'scenarios'}}),()=>this.obScroll());
+  }
+  // Test-sample CSV template: ten prefilled example rows with the Middesk
+  // signals behind each, so the customer sees the shape to provide.
+  obDownloadTestCsv(){
+    const esc=v=>'"'+String(v).replace(/"/g,'""')+'"';
+    const rows=[['scenario','expected_decision','middesk_signals','notes'].join(',')];
+    for(const sc of this.OB_SCENARIOS){
+      const ev=this.obScnEval(sc);
+      const sig=ev&&ev.attrs?ev.attrs.map(([k,v])=>k+'='+v).join('; '):'';
+      rows.push([esc(sc[0]),esc(sc[1]),esc(sig),esc(sc[3]||'')].join(','));
+    }
+    const blob=new Blob([rows.join('\n')],{type:'text/csv'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob); a.download='policy-test-samples.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(a.href);
+  }
+  obUploadTests(){
+    const inp=document.createElement('input');
+    inp.type='file'; inp.accept='.csv,text/csv';
+    inp.onchange=()=>{
+      const f=inp.files&&inp.files[0]; if(!f) return;
+      this.obThink('Testing your policy',['Parsing '+f.name,'Running each row against your policy','Comparing to your expected decisions']);
+      setTimeout(()=>this.obPush({role:'agent',kind:'testsRun',fname:f.name},()=>this.obOpenScnReview()),2600);
+    };
+    inp.click();
+  }
+  obConfirmScn(){
+    const list=this.state.ob.scnList||[]; const fix=this.state.ob.scnFix||{};
+    const changes=Object.entries(fix).filter(([i,v])=>v!==list[i][1]).map(([i,v])=>[list[i][0],list[i][1],v]);
+    this.setState(s=>({ob:{...s.ob,stage:null}}));
+    this.obThink('Calibrating policy',changes.length
+      ?['Applying your corrections','Re-scoring the test scenarios','Updating the draft']
+      :['Checking your confirmations']);
+    this.obAgent({kind:'scnConfirmed',changes},changes.length?2600:1400);
+  }
+  obScenarioCard(){
+    const h=React.createElement; const self=this;
+    const list=this.state.ob.scnList||[];
+    const uberVocab=list.some(sc=>sc[1]==='Manual review'||sc[1]==='Fail');
+    const opts=uberVocab?['Pass','Manual review','Fail']:['Pass','Review','Flag'];
+    const tone={Pass:'var(--risk-clear)','Manual review':'var(--risk-watch)',Review:'var(--risk-watch)',Fail:'var(--risk-high)',Flag:'var(--risk-high)'};
+    const fix=this.state.ob.scnFix||{};
+    const changed=Object.keys(fix).filter(i=>fix[i]!==list[i][1]).length;
+    return this.panel({boxShadow:'var(--core-color-elevation-raised)'},
+      this.panelHead('How we’d rate your test scenarios', this.mono(changed?changed+' corrected':'Your call')),
+      h('div',{style:{padding:'12px 20px 4px',fontSize:12.5,lineHeight:1.5,color:'var(--core-color-text-muted)'}},
+        'Each rating comes from the Middesk signals below it, run against your policy as configured. Correct anything that looks wrong.'),
+      h('div',{style:{maxHeight:'min(440px, 50vh)',overflowY:'auto'}},
+        ...list.map((sc,i)=>{
+          const cur=fix[i]!==undefined?fix[i]:sc[1];
+          const ev=self.obScnEval(sc);
+          return h('div',{key:i,style:{padding:'12px 20px',borderBottom:i<list.length-1?'1px solid var(--core-color-border-default)':'none'}},
+            h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:16}},
+              h('div',{style:{fontSize:13.5,lineHeight:1.45,color:'var(--core-color-text-primary)',minWidth:0}},sc[0]),
+              h('div',{style:{display:'inline-flex',gap:0,flexShrink:0,border:'1px solid var(--core-color-border-default)',borderRadius:'var(--core-radius-pill)',overflow:'hidden'}},
+                ...opts.map((o,oi)=>{ const on=cur===o;
+                  return h('button',{key:o,'data-q':'scn'+i,onClick:()=>self.setState(s=>({ob:{...s.ob,scnFix:{...(s.ob.scnFix||{}),[i]:o}}})),style:{padding:'6px 12px',minHeight:28,border:0,borderLeft:oi>0?'1px solid var(--core-color-border-default)':'none',cursor:'pointer',font:(on?'600':'400')+' 12px/1 var(--app-font)',background:on?'color-mix(in srgb, '+tone[o]+' 12%, var(--core-color-surface-card))':'var(--core-color-surface-card)',color:on?'var(--core-color-text-primary)':'var(--core-color-text-muted)'}},o); }))),
+            ev&&ev.attrs.length?h('div',{style:{display:'flex',gap:5,flexWrap:'wrap',marginTop:8}},
+              ...ev.attrs.map(([k,v])=> h('span',{key:k,style:{display:'inline-flex',alignItems:'baseline',gap:5,padding:'3px 8px',borderRadius:6,border:'1px solid var(--core-color-border-default)',background:'var(--core-color-surface-inset)'}},
+                this.mono(k,{fontSize:9,textTransform:'none',letterSpacing:0,color:'var(--core-color-text-muted)'}),
+                h('span',{style:{fontSize:11,color:'var(--core-color-text-secondary)'}},v)))):null,
+            ev?h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginTop:8,fontSize:12,color:'var(--core-color-text-muted)'}},
+              h('span',null,'Against your policy:'),
+              this.pill(ev.verdict,{Pass:'clear','Manual review':'watch',Fail:'high'}[ev.verdict]),
+              ev.rules.length
+                ? h('span',{style:{minWidth:0}},ev.rules.map(([c,o])=>c+' ('+o+')').join(' · '))
+                : h('span',null,'no configured rules tripped'),
+              ev.verdict!==sc[1]?this.mono('differs from suggested',{fontSize:9,color:'var(--risk-elev)',textTransform:'none',letterSpacing:0}):null):null);
+        })),
+      h('div',{style:{display:'flex',alignItems:'center',gap:8,padding:'14px 20px',borderTop:'1px solid var(--core-color-border-divider)'}},
+        h(ActionButton,{variant:'primary',onClick:()=>self.obConfirmScn()},'Confirm ratings')));
+  }
+
+  obSetStage(v){ this.setState(s=>({ob:{...s.ob,stage:v}})); }
+  obStepMono(kind){
+    const stages=this.obStages; const i=Math.max(0,stages.indexOf(kind));
+    return this.mono((i+1)+' of '+stages.length,{color:'var(--core-color-text-muted)'});
+  }
+  // Step counter flanked by back / forward arrows; forward unlocks once the
+  // current step is complete.
+  obStepArrows(kind,canForward,onForward){
+    const h=React.createElement;
+    const stages=this.obStages; const i=stages.indexOf(kind);
+    const prev=i>0?stages[i-1]:null;
+    const chev=(d)=>h('svg',{width:13,height:13,viewBox:'0 0 16 16',fill:'none',stroke:'currentColor',strokeWidth:1.8,strokeLinecap:'round',strokeLinejoin:'round'},
+      h('path',{d:d==='l'?'M10 3.5L5.5 8L10 12.5':'M6 3.5L10.5 8L6 12.5'}));
+    const btn=(enabled,onClick,d,label)=>h('button',{onClick:enabled?onClick:undefined,'aria-label':label,disabled:!enabled,
+      style:{display:'grid',placeItems:'center',width:22,height:22,padding:0,border:0,borderRadius:6,background:'transparent',color:'var(--core-color-text-muted)',cursor:enabled?'pointer':'default',opacity:enabled?1:0.3}},chev(d));
+    return h('div',{style:{display:'flex',alignItems:'center',gap:6}},
+      btn(!!prev,()=>this.obSetStage(prev),'l','Previous step'),
+      this.obStepMono(kind),
+      btn(!!canForward,onForward,'r','Next step'));
+  }
+  // Clarifying-question survey card that replaces the composer while a
+  // question is up. Numbered option rows (number flips to a check when
+  // selected), header arrows advance, footer takes free text or Skip.
+  obMultiCard(kind){
+    const h=React.createElement; const self=this;
+    const CFG={
+      orgTypes:{key:'orgTypes',title:'What types of organizations are you onboarding?',
+        opts:this.OB_ORG_TYPES,next:'sources',
+        skip:()=>self.obSetStage('sources')},
+      sources:{key:'sources',title:'Which sources do you ideally want decisions to draw on?',
+        opts:this.OB_SOURCES.filter(o=>o!=='I am not sure'),next:'groups',
+        skip:()=>self.setState(s=>({ob:{...s.ob,sources:['I am not sure'],stage:'groups'}}))},
+      groups:{key:'groupsSel',title:'Which verifications should this policy include?',
+        opts:this.OB_GROUPS.map(g=>g.g),next:'g0',rows:true,
+        // Skip = take Middesk's recommended set (everything) and move on
+        skip:()=>self.setState(s=>({ob:{...s.ob,groupsSel:this.OB_GROUPS.map(g=>g.g),stage:'g0'}}))},
+    }[kind];
+    const sel=this.state.ob[CFG.key]||[];
+    const custom=(this.state.ob.custom||{})[CFG.key]||[];
+    const allOn=CFG.opts.length>0&&CFG.opts.every(o=>sel.includes(o));
+    const badge=(on,n)=>h('span',{style:{display:'grid',placeItems:'center',width:22,height:22,flexShrink:0,borderRadius:6,border:'1px solid var(--core-color-border-default)',background:on?'var(--core-color-state-selected-bg)':'var(--core-color-surface-inset)',color:on?'var(--core-color-text-primary)':'var(--core-color-text-muted)',font:'600 11px/1 var(--app-font)'}},
+      on?h('svg',{width:12,height:12,viewBox:'0 0 16 16',fill:'none',stroke:'currentColor',strokeWidth:2,strokeLinecap:'round',strokeLinejoin:'round'},h('path',{d:'M3 8.5l3.2 3.2L13 5'})):String(n));
+    const row=(label,on,n,onClick,extra)=>h('button',{key:'r'+n+label,onClick,style:{display:'flex',alignItems:extra?'flex-start':'center',gap:12,width:'100%',padding:'11px 20px',border:0,borderBottom:'1px solid var(--core-color-border-divider)',background:'transparent',cursor:'pointer',textAlign:'left'}},
+      badge(on,n),
+      extra||h('span',{style:{font:'400 13.5px/1.45 var(--app-font)',color:'var(--core-color-text-primary)'}},label));
+    const groupRow=(g,on,n)=>row(g.g,on,n,()=>self.obToggle(CFG.key,g.g),
+      h('span',{style:{display:'flex',flexDirection:'column',gap:2,minWidth:0,flex:1}},
+        h('span',{style:{display:'flex',alignItems:'baseline',justifyContent:'space-between',gap:12}},
+          h('span',{style:{font:'600 13.5px/1.4 var(--app-font)',color:'var(--core-color-text-primary)'}},g.g),
+          g.prod?this.mono(g.prod,{fontSize:9,whiteSpace:'nowrap',flexShrink:0,color:'var(--core-color-text-muted)',textTransform:'none',letterSpacing:0}):null),
+        h('span',{style:{font:'400 12.5px/1.45 var(--app-font)',color:'var(--core-color-text-muted)'}},g.desc)));
+    let n=0; const rows=[];
+    if(CFG.rows){ this.OB_GROUPS.forEach(g=>{ n+=1; rows.push(groupRow(g,sel.includes(g.g),n)); }); }
+    else { CFG.opts.forEach(o=>{ n+=1; rows.push(row(o,sel.includes(o),n,()=>self.obToggle(CFG.key,o))); }); }
+    custom.forEach(o=>{ n+=1; rows.push(row(o,sel.includes(o),n,()=>self.obToggle(CFG.key,o))); });
+    n+=1; rows.push(row('All of these',allOn,n,()=>self.setState(s=>({ob:{...s.ob,[CFG.key]:allOn?[]:[...CFG.opts,...custom]}}))));
+    return this.panel({boxShadow:'var(--core-color-elevation-raised)'},
+      this.panelHead(CFG.title, this.obStepArrows(kind, sel.length>0&&!!CFG.next, ()=>self.obSetStage(CFG.next))),
+      h('div',{style:{maxHeight:'min(420px, 46vh)',overflowY:'auto'}},...rows),
+      // Footer: free text (chat / add an option) + Skip
+      h('div',{style:{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',margin:10,borderRadius:12,border:'1px solid var(--core-color-border-default)',background:'var(--core-color-surface-inset)'}},
+        h('span',{style:{display:'grid',placeItems:'center',width:22,height:22,flexShrink:0,color:'var(--core-color-text-muted)'}},
+          h('svg',{width:13,height:13,viewBox:'0 0 16 16',fill:'none',stroke:'currentColor',strokeWidth:1.5,strokeLinecap:'round',strokeLinejoin:'round'},
+            h('path',{d:'M11.3 2.3l2.4 2.4L5 13.4l-3 .6.6-3z'}))),
+        h('input',{value:this.state.ob.otherInput||'',placeholder:'Something else',
+          onChange:(e)=>self.setState({ob:{...self.state.ob,otherInput:e.target.value}}),
+          onKeyDown:(e)=>{ if(e.key==='Enter'){ e.preventDefault(); self.obAddCustom(CFG.key); } },
+          style:{flex:1,minWidth:0,border:0,outline:'none',background:'transparent',font:'400 13.5px/1.4 var(--app-font)',color:'var(--core-color-text-primary)'}}),
+        h(ActionButton,{variant:'secondary',onClick:CFG.skip},'Skip'),
+        // Submit: adds typed text as an entry, or submits the selections and
+        // advances when there's no text.
+        h(IconActionButton,{variant:'primary','aria-label':'Submit',title:'Submit',style:{borderRadius:'50%'},
+          disabled:!((this.state.ob.otherInput||'').trim()||sel.length),
+          onClick:()=>{ if((self.state.ob.otherInput||'').trim()) self.obAddCustom(CFG.key); else self.obSetStage(CFG.next); }}, this.navIcon('arrowUp',15))));
+  }
+  // Use-case picker: the same clarifying-question card idiom as the surveys,
+  // single select, no Skip. Free text submits a custom use case.
+  obUseCaseCard(){
+    const h=React.createElement; const self=this;
+    const cur=this.obUseCase;
+    const badge=(on,n)=>h('span',{style:{display:'grid',placeItems:'center',width:22,height:22,flexShrink:0,borderRadius:6,border:'1px solid var(--core-color-border-default)',background:on?'var(--core-color-state-selected-bg)':'var(--core-color-surface-inset)',color:on?'var(--core-color-text-primary)':'var(--core-color-text-muted)',font:'600 11px/1 var(--app-font)'}},
+      on?h('svg',{width:12,height:12,viewBox:'0 0 16 16',fill:'none',stroke:'currentColor',strokeWidth:2,strokeLinecap:'round',strokeLinejoin:'round'},h('path',{d:'M3 8.5l3.2 3.2L13 5'})):String(n));
+    return this.panel({boxShadow:'var(--core-color-elevation-raised)'},
+      this.panelHead('Which use case fits best?', this.mono('Single select',{color:'var(--core-color-text-muted)'})),
+      h('div',{style:{maxHeight:'min(420px, 46vh)',overflowY:'auto'}},
+        ...this.OB_USECASES.map((u,ui)=>{ const on=cur===u;
+          return h('button',{key:u,onClick:()=>self.setState(s=>({ob:{...s.ob,useCase:u}})),style:{display:'flex',alignItems:'center',gap:12,width:'100%',padding:'11px 20px',border:0,borderBottom:'1px solid var(--core-color-border-divider)',background:'transparent',cursor:'pointer',textAlign:'left'}},
+            badge(on,ui+1),
+            h('span',{style:{font:'400 13.5px/1.45 var(--app-font)',color:'var(--core-color-text-primary)'}},u)); })),
+      h('div',{style:{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',margin:10,borderRadius:12,border:'1px solid var(--core-color-border-default)',background:'var(--core-color-surface-inset)'}},
+        h('span',{style:{display:'grid',placeItems:'center',width:22,height:22,flexShrink:0,color:'var(--core-color-text-muted)'}},
+          h('svg',{width:13,height:13,viewBox:'0 0 16 16',fill:'none',stroke:'currentColor',strokeWidth:1.5,strokeLinecap:'round',strokeLinejoin:'round'},
+            h('path',{d:'M11.3 2.3l2.4 2.4L5 13.4l-3 .6.6-3z'}))),
+        h('input',{value:this.state.ob.ucInput||'',placeholder:'Something else',
+          onChange:(e)=>self.setState({ob:{...self.state.ob,ucInput:e.target.value}}),
+          onKeyDown:(e)=>{ if(e.key==='Enter'){ e.preventDefault(); self.obPickUseCase(); } },
+          style:{flex:1,minWidth:0,border:0,outline:'none',background:'transparent',font:'400 13.5px/1.4 var(--app-font)',color:'var(--core-color-text-primary)'}}),
+        h(IconActionButton,{variant:'primary','aria-label':'Submit',title:'Submit',style:{borderRadius:'50%'},
+          onClick:()=>self.obPickUseCase()}, this.navIcon('arrowUp',15))));
+  }
+  obPickUseCase(){
+    const t=(this.state.ob.ucInput||'').trim();
+    this.setState(s=>({ob:{...s.ob,useCase:t||s.ob.useCase,ucInput:'',ucOpen:false}}));
+  }
+  // One configuring step per selected verification area: each rule gets an
+  // Accept / Review / Reject outcome, with Middesk-recommended defaults
+  // prefilled.
+  // One configure step per selected unit group: the same units the Policies
+  // builder edits, with the onboarding-scoped control (role per unit).
+  obGroupCard(idx){
+    const h=React.createElement; const self=this;
+    const groups=this.obActiveGroups; const grp=groups[idx];
+    if(!grp){ return null; }
+    const last=idx===groups.length-1;
+    const OUTCOMES=[['Deny','deny','var(--risk-high)'],['Review','review','var(--risk-watch)'],['Approve','approve','var(--risk-clear)'],['Remove','remove',null]];
+    const draftWf=this.obDraftWorkflow();
+    return this.panel({boxShadow:'var(--core-color-elevation-raised)'},
+      this.panelHead('Configure · '+grp.g, this.obStepArrows('g'+idx, !last, ()=>self.obSetStage('g'+(idx+1)))),
+      h('div',{style:{padding:'12px 20px 4px',fontSize:12.5,lineHeight:1.5,color:'var(--core-color-text-muted)'}},
+        'Pick what happens when each check fails: deny the business, send it to review, approve anyway and keep the finding, or remove the check from the policy. Fine-tune it further in Policies.'),
+      h('div',{style:{maxHeight:'min(400px, 44vh)',overflowY:'auto'}},
+        ...grp.units.map((u,ui)=>{
+          const border=ui<grp.units.length-1?'1px solid var(--core-color-border-default)':'none';
+          const cfg=self.obUnitCfg(u);
+          const decides=cfg.outcome==='remove'?null:self.obUnitDecides(draftWf.units[u.id]);
+          return h('div',{key:u.id,style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:16,padding:'12px 20px',paddingLeft:u.parent_id?36:20,borderBottom:border}},
+            h('div',{style:{minWidth:0,flex:1}},
+              h('div',{style:{fontSize:13.5,lineHeight:1.45,color:'var(--core-color-text-primary)'}},u.text,
+                u.needs_review?h('span',{style:{marginLeft:8}},this.mono('needs review',{fontSize:8,color:'var(--risk-elev)'})):null,
+                u.parent_id?h('span',{style:{marginLeft:8}},this.mono('only if '+u.parent_answer,{fontSize:8,textTransform:'none'})):null),
+              this.mono('Middesk · '+(u.backing||[]).map(b=>wfCheckLabel(b)).slice(0,3).join(' · ')+((u.backing||[]).length>3?' · …':''),{fontSize:9,color:'var(--core-color-text-muted)',textTransform:'none',letterSpacing:0}),
+              decides?h('div',{style:{fontSize:11,lineHeight:1.5,color:'var(--core-color-text-muted)',marginTop:3}},decides):null),
+            h('div',{style:{display:'inline-flex',gap:0,flexShrink:0,border:'1px solid var(--core-color-border-default)',borderRadius:'var(--core-radius-pill)',overflow:'hidden'}},
+              ...OUTCOMES.map(([label,val,tone],oi)=>{ const on=cfg.outcome===val;
+                return h('button',{key:val,'data-q':u.id,onClick:()=>self.obSetUnitCfg(u.id,val),style:{padding:'6px 12px',minHeight:28,border:0,borderLeft:oi>0?'1px solid var(--core-color-border-default)':'none',cursor:'pointer',font:(on?'600':'400')+' 12px/1 var(--app-font)',background:on?(tone?'color-mix(in srgb, '+tone+' 12%, var(--core-color-surface-card))':'var(--core-color-state-selected-bg)'):'var(--core-color-surface-card)',color:on?'var(--core-color-text-primary)':'var(--core-color-text-muted)'}},label); }))); })),
+      // Footer: free-text notes + arrow submit, matching the selection cards.
+      h('div',{style:{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',margin:10,borderRadius:12,border:'1px solid var(--core-color-border-default)',background:'var(--core-color-surface-inset)'}},
+        h('span',{style:{display:'grid',placeItems:'center',width:22,height:22,flexShrink:0,color:'var(--core-color-text-muted)'}},
+          h('svg',{width:13,height:13,viewBox:'0 0 16 16',fill:'none',stroke:'currentColor',strokeWidth:1.5,strokeLinecap:'round',strokeLinejoin:'round'},
+            h('path',{d:'M11.3 2.3l2.4 2.4L5 13.4l-3 .6.6-3z'}))),
+        h('input',{value:(this.state.ob.groupNotes||{})[grp.g]||'',placeholder:'Add more',
+          onChange:(e)=>self.setState(s=>({ob:{...s.ob,groupNotes:{...(s.ob.groupNotes||{}),[grp.g]:e.target.value}}})),
+          onKeyDown:(e)=>{ if(e.key==='Enter'){ e.preventDefault(); last?self.obFinishSurvey():self.obSetStage('g'+(idx+1)); } },
+          style:{flex:1,minWidth:0,border:0,outline:'none',background:'transparent',font:'400 13.5px/1.4 var(--app-font)',color:'var(--core-color-text-primary)'}}),
+        // Submit: carries any typed note and advances to the next area.
+        h(IconActionButton,{variant:'primary','aria-label':'Submit',title:'Submit',style:{borderRadius:'50%'},
+          onClick:()=>{ last?self.obFinishSurvey():self.obSetStage('g'+(idx+1)); }}, this.navIcon('arrowUp',15))));
+  }
+  obCheck(){
+    const h=React.createElement;
+    return h('svg',{width:12,height:12,viewBox:'0 0 16 16',fill:'none',stroke:'var(--risk-clear)',strokeWidth:2.2,strokeLinecap:'round',strokeLinejoin:'round',style:{flexShrink:0}},
+      h('path',{d:'M3 8.5l3.2 3.2L13 5'}));
+  }
+  // Circle check shown on every option pill: muted when unselected,
+  // darker when selected.
+  obOptCheck(on){
+    const h=React.createElement;
+    return h('svg',{width:14,height:14,viewBox:'0 0 16 16',fill:'none',stroke:on?'var(--core-color-text-primary)':'var(--core-color-text-muted)',strokeWidth:1.5,strokeLinecap:'round',strokeLinejoin:'round',style:{flexShrink:0,opacity:on?1:0.45}},
+      h('circle',{cx:8,cy:8,r:6.5}), on?h('path',{d:'M5.2 8.3l1.9 1.9L10.9 6'}):null);
+  }
+  obMsg(m,i){
+    const h=React.createElement; const self=this;
+    const MARK='M14.868 15.99V15.995H17.8334V13.2048V13.2011H17.8294L4.14417 0H1.18008V2.79517L14.868 15.99ZM0 15.995H4.48643V11.7661H0V15.995ZM26.7415 15.99V15.995H29.7069V13.2048V13.2011H29.7029L22.8603 6.60055L16.0177 0H13.0536V2.79517L26.7415 15.99Z';
+    if(m.role==='user') return h('div',{key:i,style:{alignSelf:'flex-end',maxWidth:'80%',background:'var(--core-color-surface-subtle)',color:'var(--core-color-text-primary)',padding:'11px 16px',borderRadius:'var(--core-radius-card)',fontSize:14,lineHeight:1.4}},m.text);
+    // Settled thinking trace: collapsed by default, expands to the steps.
+    if(m.role==='trace'){
+      const open=!!(this.state.ob.traceOpen||{})[i];
+      return h('div',{key:i,style:{display:'flex',flexDirection:'column',gap:4,paddingLeft:48,marginTop:-6}},
+        h('button',{onClick:()=>self.setState(s=>({ob:{...s.ob,traceOpen:{...(s.ob.traceOpen||{}),[i]:!open}}})),
+          style:{display:'inline-flex',alignItems:'center',gap:7,alignSelf:'flex-start',padding:0,border:0,background:'none',cursor:'pointer',font:'500 14.5px/1.4 var(--app-font)',color:'var(--core-color-text-secondary)'}},
+          m.title, this.obChevron(open)),
+        open?h('div',{style:{display:'flex',flexDirection:'column',marginTop:8,paddingLeft:2}},...this.obStepRows(m.steps,m.steps.length,false)):null);
+    }
+    const wrap=(...kids)=> h('div',{key:i,style:{display:'flex',gap:14,alignItems:'flex-start',animation:'mdFade .25s var(--core-ease-standard)'}},
+      h('span',{style:{display:'grid',placeItems:'center',width:34,height:34,borderRadius:9,flexShrink:0,background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',color:'var(--core-color-text-primary)'}},
+        h('svg',{width:16,height:9,viewBox:'0 0 30 16',fill:'currentColor'}, h('path',{d:MARK}))),
+      h('div',{style:{minWidth:0,flex:1,paddingTop:1,display:'flex',flexDirection:'column',gap:12}},...kids));
+    const para=(t,muted)=> h('div',{style:{fontSize:muted?13:14.5,lineHeight:1.55,color:muted?'var(--core-color-text-muted)':'var(--core-color-text-primary)',maxWidth:620}},t);
+    const quiet=(label,onClick)=> h('button',{onClick,style:{alignSelf:'flex-start',padding:'7px 14px',minHeight:30,borderRadius:'var(--core-radius-pill)',border:'1px solid var(--core-color-action-secondary-border)',background:'var(--core-color-action-secondary-bg)',color:'var(--core-color-action-secondary-fg)',cursor:'pointer',font:'500 12.5px/1 var(--app-font)'}},label);
+    if(m.kind==='identify'){
+      // Only the latest run's identify message is live; earlier ones freeze
+      // at the use case they predicted.
+      const lastIdentify=[...this.state.ob.msgs].reverse().find(x=>x.kind==='identify')===m;
+      const ucLocked=!lastIdentify||/^g\d+$/.test(this.state.ob.stage||'')||this.state.ob.done;
+      const ucLc=(lastIdentify?this.obUseCase:(m.uc||this.obUseCase)).toLowerCase().replace(/&/g,'and');
+      return wrap(
+        para(m.company
+          ? 'Thanks. We found '+m.company+' ('+m.domain+') and pulled what we know about the business.'
+          : 'Thanks. That gives us enough context to get started.'),
+        h('div',{style:{fontSize:14.5,lineHeight:1.55,color:'var(--core-color-text-primary)',maxWidth:620}},
+          'It looks like you care about ',
+          h('span',{style:{fontWeight:600}},ucLc),
+          ', so we will shape your first policy around that. A few questions, starting broad and going deeper.'),
+        ucLocked?null:h('div',null,
+          h(ActionButton,{variant:'secondary',onClick:()=>self.setState(s=>({ob:{...s.ob,ucOpen:true}}))},'Pick different use case')));
+    }
+    // Survey stages render as the popup above the composer, not in-thread.
+    if(m.kind==='orgTypes'||m.kind==='sources'||m.kind==='questions') return null;
+    if(m.kind==='output'){
+      // Render from the snapshot carried on the message; later runs must not
+      // rewrite earlier output cards.
+      const d=m.draft||this.obCurrentDraft();
+      return wrap(
+        para('Here’s the policy you configured: the data we’ll collect, and what each check decides.'),
+        // Data policy: what this configuration collects and checks.
+        this.panel({},
+          this.panelHead('Data policy', this.mono('What we collect and check')),
+          h('div',{style:{padding:'6px 0'}},
+            h('div',{style:{display:'flex',justifyContent:'space-between',gap:16,alignItems:'baseline',padding:'9px 22px',borderBottom:'1px solid var(--core-color-border-default)'}},
+              h('span',{style:{fontSize:12.5,color:'var(--core-color-text-secondary)'}},'Organizations onboarded'),
+              h('span',{style:{fontSize:12.5,fontWeight:600,textAlign:'right'}},(d.orgTypes||[]).join(', ')||'Not specified')),
+            h('div',{style:{display:'flex',justifyContent:'space-between',gap:16,alignItems:'baseline',padding:'9px 22px',borderBottom:'1px solid var(--core-color-border-default)'}},
+              h('span',{style:{fontSize:12.5,color:'var(--core-color-text-secondary)'}},'Data policy tier'),
+              h('span',{style:{fontSize:12.5,fontWeight:600,textAlign:'right'}},({authoritative:'Authoritative only','+gov':'+ Government records','+web':'+ Web sources'})[d.tier]||d.tier||'Not specified')),
+            h('div',{style:{display:'flex',justifyContent:'space-between',gap:16,alignItems:'baseline',padding:'9px 22px',borderBottom:'none'}},
+              h('span',{style:{fontSize:12.5,color:'var(--core-color-text-secondary)'}},'Middesk checks enabled'),
+              this.mono((d.prods||[]).map(p=>wfCheckLabel(p)).join(', ')||'None',{fontSize:10,textAlign:'right',maxWidth:420,textTransform:'none',letterSpacing:0})))),
+        // Decision policy: the units and roles this run configured.
+        this.panel({},
+          this.panelHead('Decision policy', this.mono(d.groups.reduce((n,g)=>n+g.units.length,0)+' units configured')),
+          h('div',{style:{padding:'4px 0'}},
+            ...d.groups.flatMap((g,gi,arr)=>{
+              const rows=[h('div',{key:'g'+g.g,style:{padding:'8px 22px',background:'var(--core-color-surface-inset)',borderBottom:'1px solid var(--core-color-border-default)',borderTop:gi>0?'1px solid var(--core-color-border-default)':'none'}},
+                this.mono(g.g,{fontSize:10}))];
+              g.units.forEach((u,ui)=>{
+                const border=(!g.notes&&gi===arr.length-1&&ui===g.units.length-1)?'none':'1px solid var(--core-color-border-default)';
+                const t={deny:'high',review:'watch',approve:'clear',remove:'mute'}[u.outcome]||'mute';
+                const cfg=d.workflow&&d.workflow.units[u.id];
+                const decides=cfg&&cfg.enabled&&u.outcome!=='remove'?this.obUnitDecides(cfg):null;
+                rows.push(h('div',{key:u.id,style:{display:'flex',justifyContent:'space-between',gap:16,alignItems:'flex-start',padding:'8px 22px',borderBottom:border}},
+                  h('div',{style:{minWidth:0}},
+                    h('div',{style:{fontSize:12.5,color:'var(--core-color-text-secondary)'}},u.text),
+                    decides?h('div',{style:{fontSize:11,lineHeight:1.5,color:'var(--core-color-text-muted)',marginTop:2}},decides):null),
+                  this.pill(({deny:'Deny',review:'Review',approve:'Approve',remove:'Removed'})[u.outcome]||u.outcome,t)));
+              });
+              if(g.notes) rows.push(h('div',{key:'n'+g.g,style:{padding:'8px 22px',fontSize:12,lineHeight:1.5,color:'var(--core-color-text-muted)',borderBottom:gi===arr.length-1?'none':'1px solid var(--core-color-border-default)'}},'Notes: '+g.notes));
+              return rows;
+            }))),
+        this.panel({padding:'20px 22px'},
+          this.mono('Policy recommendation',{color:'var(--core-color-text-muted)'}),
+          h('div',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:19,letterSpacing:'-.01em',margin:'8px 0 6px'}},d.useCase+' starter policy'),
+          h('ul',{style:{margin:'0 0 14px',padding:'0 0 0 18px',display:'flex',flexDirection:'column',gap:6,fontSize:13,lineHeight:1.5,color:'var(--core-color-text-secondary)'}},
+            ...(d.scenario==='uber'
+              ? [h('li',{key:1},'Auto-fail on OFAC or sanctions hits and known fraud network indicators.'),
+                 h('li',{key:2},'Manual review whenever we can’t verify the business is real, the applicant is associated with it, and it’s permitted to sell food.'),
+                 h('li',{key:3},'Score-weight health inspections, web presence, and physical-presence signals; decline home-kitchen operations.')]
+              : [h('li',{key:1},'Auto-approve when the EIN is issued and matched, the DBA is current, and web presence is moderate or better.'),
+                 h('li',{key:2},'Route to manual review on an EIN mismatch, a lapsed DBA, or thin web presence.'),
+                 h('li',{key:3},'Flag watchlist near-matches and businesses formed in the last 6 months.')])),
+          h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
+            h(ActionButton,{variant:'primary',onClick:()=>self.obCreatePolicy()},'Create this policy'),
+            h(ActionButton,{variant:'secondary',onClick:()=>self.obWhiteGlove()},'Talk it through with Middesk'))));
+    }
+    if(m.kind==='cantIdentify') return wrap(
+      para('We couldn’t confidently identify a business from that.'),
+      para('Share your company’s website URL, or tell us a bit more about what the company does and who its customers are.',true),
+      quiet('Contact Middesk for a white glove discussion',()=>self.obWhiteGlove()));
+    if(m.kind==='bespoke') return wrap(
+      para('No problem. We can build bespoke questions for the things Middesk doesn’t already cover.'),
+      para('A solutions engineer will tailor these to your program alongside the standard checks.',true),
+      quiet('Contact Middesk for a white glove discussion',()=>self.obWhiteGlove()));
+    if(m.kind==='whiteGlove') return wrap(
+      para('You’re booked. A Middesk specialist will reach out at dana.melas@mercury.com to set up a white glove session.'));
+    if(m.kind==='created'){ const uc=m.uc||this.obUseCase;
+      return wrap(
+        para('Draft created. Your '+uc+' starter policy is ready, and we’ll refine its thresholds as your first orders come in.'),
+        para('Next, test it against sample data. Download the CSV template, fill it with test applicants and the decision you’d expect for each, then upload it and we’ll run every row against this policy.',true),
+        h('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
+          h(ActionButton,{variant:'primary',onClick:()=>self.obDownloadTestCsv()},'Download CSV template'),
+          h(ActionButton,{variant:'secondary',onClick:()=>self.obUploadTests()},'Upload test samples'),
+          h(ActionButton,{variant:'secondary',onClick:()=>self.setS({view:'policies'})},'View draft policy'),
+          this.pill('Policy draft · '+uc,'clear')));
+    }
+    if(m.kind==='testsRun') return wrap(
+      para('We parsed '+(m.fname||'your test samples')+' and ran each row against your policy. Review how they rate below and correct anything that looks wrong.'));
+    if(m.kind==='scnConfirmed'){
+      const toneMap={Pass:'clear','Manual review':'watch',Review:'watch',Fail:'high',Flag:'high'};
+      return wrap(
+        para(m.changes.length
+          ? 'Got it. We updated '+m.changes.length+' scenario rating'+(m.changes.length>1?'s':'')+' and calibrated the draft against your corrections.'
+          : 'Thanks for checking. Your ratings match ours, so the draft stands as-is.'),
+        m.changes.length?this.panel({},
+          this.panelHead('Corrected ratings', this.mono(m.changes.length+' of 10')),
+          h('div',{style:{padding:'4px 0'}}, ...m.changes.map((c,ci)=> h('div',{key:ci,style:{display:'flex',justifyContent:'space-between',gap:16,alignItems:'center',padding:'9px 22px',borderBottom:ci<m.changes.length-1?'1px solid var(--core-color-border-default)':'none'}},
+            h('span',{style:{fontSize:12.5,lineHeight:1.45,color:'var(--core-color-text-primary)',minWidth:0}},c[0]),
+            h('span',{style:{display:'inline-flex',alignItems:'center',gap:8,flexShrink:0}},
+              this.pill(c[1],toneMap[c[1]]||'mute'),
+              h('span',{style:{color:'var(--core-color-text-muted)',fontSize:12}},'→'),
+              this.pill(c[2],toneMap[c[2]]||'mute'))))))
+        :null);
+    }
+    return null;
+  }
+  obClock(){
+    const h=React.createElement;
+    return h('svg',{width:14,height:14,viewBox:'0 0 16 16',fill:'none',stroke:'currentColor',strokeWidth:1.4,strokeLinecap:'round'},
+      h('circle',{cx:8,cy:8,r:6.2}), h('path',{d:'M8 4.8V8l2.2 1.4'}));
+  }
+  obChevron(open){
+    const h=React.createElement;
+    return h('svg',{width:12,height:12,viewBox:'0 0 16 16',fill:'none',stroke:'currentColor',strokeWidth:1.8,strokeLinecap:'round',strokeLinejoin:'round',style:{transform:open?'rotate(180deg)':'none',transition:'transform .15s var(--core-ease-standard)',flexShrink:0}},
+      h('path',{d:'M3.5 6L8 10.5L12.5 6'}));
+  }
+  obStepRows(steps,shown,live){
+    const h=React.createElement;
+    const items=steps.slice(0,shown).map((s,i)=>({t:s,check:false,active:live&&i===shown-1}));
+    if(!live) items.push({t:'Done',check:true,active:false});
+    const mutedCheck=h('svg',{width:15,height:15,viewBox:'0 0 16 16',fill:'none',stroke:'var(--core-color-text-muted)',strokeWidth:1.4,strokeLinecap:'round',strokeLinejoin:'round'},
+      h('circle',{cx:8,cy:8,r:6.5}), h('path',{d:'M5.2 8.3l1.9 1.9L10.9 6'}));
+    return items.map((it,i)=>{
+      const last=i===items.length-1;
+      return h('div',{key:i,style:{position:'relative',display:'grid',gridTemplateColumns:'17px 1fr',columnGap:12,animation:'mdFade .25s var(--core-ease-standard)'+(it.active?', obPulse 1.6s ease-in-out .3s infinite':'')}},
+        h('div',{style:{position:'relative',display:'flex',justifyContent:'center'}},
+          last?null:h('div',{style:{position:'absolute',top:19,bottom:-1,left:'50%',width:1,background:'var(--core-color-border-default)',transform:'translateX(-.5px)'}}),
+          h('span',{style:{display:'grid',placeItems:'center',width:17,height:17,position:'relative',zIndex:1,color:'var(--core-color-text-muted)'}}, it.check?mutedCheck:this.obClock())),
+        h('div',{style:{fontSize:13.5,lineHeight:'17px',color:it.active?'var(--core-color-text-secondary)':'var(--core-color-text-muted)',paddingBottom:last?0:13}},it.t));
+    });
+  }
+  obBusyBlock(){
+    const h=React.createElement; const b=this.state.ob.busy; if(!b) return null;
+    const MARK='M14.868 15.99V15.995H17.8334V13.2048V13.2011H17.8294L4.14417 0H1.18008V2.79517L14.868 15.99ZM0 15.995H4.48643V11.7661H0V15.995ZM26.7415 15.99V15.995H29.7069V13.2048V13.2011H29.7029L22.8603 6.60055L16.0177 0H13.0536V2.79517L26.7415 15.99Z';
+    return h('div',{style:{display:'flex',gap:14,alignItems:'flex-start'}},
+      h('span',{style:{display:'grid',placeItems:'center',width:34,height:34,borderRadius:9,flexShrink:0,background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',color:'var(--core-color-text-primary)',animation:'obPulse 1.6s ease-in-out infinite'}},
+        h('svg',{width:16,height:9,viewBox:'0 0 30 16',fill:'currentColor'}, h('path',{d:MARK}))),
+      h('div',{style:{minWidth:0,flex:1,paddingTop:6,display:'flex',flexDirection:'column',gap:4}},
+        h('button',{onClick:()=>this.setState(s=>({ob:{...s.ob,busy:s.ob.busy?{...s.ob.busy,open:!s.ob.busy.open}:null}})),
+          style:{display:'inline-flex',alignItems:'center',gap:8,alignSelf:'flex-start',padding:0,border:0,background:'none',cursor:'pointer',font:'500 14.5px/1.4 var(--app-font)',color:'var(--core-color-text-secondary)'}},
+          h('svg',{width:13,height:13,viewBox:'0 0 16 16',fill:'none',stroke:'currentColor',strokeWidth:1.8,strokeLinecap:'round',style:{animation:'obSpin .8s linear infinite',flexShrink:0}},
+            h('path',{d:'M8 1.5a6.5 6.5 0 1 1-6.5 6.5'})),
+          h('span',{style:{animation:'obPulse 1.6s ease-in-out infinite'}},b.title+'…'),
+          this.obChevron(b.open)),
+        b.open?h('div',{style:{display:'flex',flexDirection:'column',marginTop:8,paddingLeft:2}},...this.obStepRows(b.steps,b.shown,true)):null));
+  }
+  onboardThread(){
+    const h=React.createElement;
+    const stage=this.state.ob.stage;
+    let card=null;
+    if(!this.state.ob.busy){
+      if(this.state.ob.ucOpen) card=this.obUseCaseCard();
+      else if(stage==='orgTypes'||stage==='sources'||stage==='groups') card=this.obMultiCard(stage);
+      else if(stage==='scenarios') card=this.obScenarioCard();
+      else if(/^g\d+$/.test(stage)) card=this.obGroupCard(parseInt(stage.slice(1),10));
+    }
+    // While a question is up it replaces the composer; its footer input keeps
+    // free-text entry available.
+    const composer=h('div',{style:{position:'absolute',left:0,right:0,bottom:16,padding:'0 24px',pointerEvents:'none'}},
+      h('div',{style:{maxWidth:820,margin:'0 auto',pointerEvents:'auto'}},
+        card
+          ? h('div',{style:{animation:'mdFade .25s var(--core-ease-standard)'}},card)
+          : this.chatComposer({boxShadow:'var(--core-color-elevation-raised)'})));
+    return h('div',{style:{height:'100vh',position:'relative'}},
+      h('div',{id:'intel-msgs',style:{height:'100%',overflowY:'auto'}},
+        h('div',{style:{maxWidth:820,margin:'0 auto',padding:'26px 24px 150px',display:'flex',flexDirection:'column',gap:18}},
+          ...this.state.ob.msgs.map((m,i)=>this.obMsg(m,i)),
+          this.obBusyBlock())),
+      composer);
+  }
+
   connRows(ranked){ const h=React.createElement; const E=this.entities;
     return h('div',{style:{display:'flex',flexDirection:'column',gap:8}}, ...ranked.map((c,i)=>{ const e=E[c.id]; const rc=this.RISK[c.risk].c;
       return h('div',{key:c.id,style:{display:'grid',gridTemplateColumns:'auto 1fr auto auto',gap:13,alignItems:'center',padding:'11px 13px',borderRadius:11,border:'1px solid '+(c.risk==='high'?'color-mix(in srgb, '+rc+' 28%, var(--core-color-surface-card))':'var(--core-color-border-default)'),background:c.risk==='high'?'color-mix(in srgb, '+rc+' 6%, var(--core-color-surface-card))':(c.self?'var(--core-color-state-selected-bg)':'var(--core-color-surface-card)')}},
@@ -1276,7 +1996,8 @@ export default class App extends React.Component {
   get intelAgents(){ return ['Risk summarizer','Network tracer','Ownership mapper','Watchlist screener','Portfolio analyst']; }
   chatComposer(extra){
     const h=React.createElement; const self=this;
-    const send=()=>{ this.setState({srcOpen:false,agOpen:false,chatAttach:null}); if(this._chatTa) this._chatTa.style.height='auto'; this.askIntel(this.state.chatInput); };
+    const send=()=>{ this.setState({srcOpen:false,agOpen:false,chatAttach:null}); if(this._chatTa) this._chatTa.style.height='auto';
+      if(this.onboarding) this.obSend(this.state.chatInput); else this.askIntel(this.state.chatInput); };
     // Dropdown menu + trigger, shared by Sources and Agents. Sits under its
     // button; flips upward when the composer is docked at the viewport bottom.
     const dropUp=((this.activeChatObj||{msgs:[]}).msgs).length>0;
@@ -1296,20 +2017,18 @@ export default class App extends React.Component {
             ...g.items.map(s=>h(MenuCheckboxItem,{key:s,checked:!off[s],onCheckedChange:()=>this.setState({[offKey]:{...off,[s]:!off[s]}}),onSelect:(e)=>e.preventDefault()},s))])));
     };
     const sources=flyup('Sources',this.intelSources,'srcOpen','srcOff','layers');
-    const agents=flyup('Agents',[{items:this.intelAgents}],'agOpen','agOff','bot');
     return h('div',{className:'app-composer',style:{position:'relative',...(extra||{})}},
       this.state.chatAttach?h('div',{style:{display:'flex',gap:6,padding:'10px 12px 0'}},
         h('span',{style:{display:'inline-flex',alignItems:'center',gap:6,height:24,maxWidth:'100%',padding:'0 4px 0 8px',border:'1px solid var(--core-color-border-default)',borderRadius:'var(--core-radius-control)',background:'var(--core-color-surface-raised)',fontSize:12,color:'var(--core-color-text-primary)'}},
           self.navIcon('paperclip',12),
           h('span',{style:{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},this.state.chatAttach),
           h('button',{onClick:()=>this.setState({chatAttach:null}),title:'Remove attachment',style:{display:'inline-flex',alignItems:'center',justifyContent:'center',width:16,height:16,padding:0,border:0,borderRadius:3,background:'transparent',color:'var(--core-color-text-muted)',cursor:'pointer',fontSize:12,lineHeight:1}},'\u00d7'))):null,
-      h('textarea',{value:this.state.chatInput,placeholder:'Ask Middesk questions about business identities in your portfolio',rows:3,ref:(el)=>{this._chatTa=el;},
+      h('textarea',{value:this.state.chatInput,placeholder:(this.state.chats||[]).length===0?'https://yourcompany.com, or a few sentences about your business':'Ask Middesk questions about business identities in your portfolio',rows:3,ref:(el)=>{this._chatTa=el;},
         onChange:(e)=>{ const t=e.target; t.style.height='auto'; t.style.height=t.scrollHeight+'px'; this.setState({chatInput:t.value}); },
         onKeyDown:(e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); send(); } },
         style:{display:'block',width:'100%',minHeight:63,overflow:'hidden',border:0,outline:'none',background:'transparent',resize:'none',padding:'14px 16px 4px',font:'400 15px/1.4 var(--app-font)',color:'var(--core-color-text-primary)'}}),
       h('div',{style:{display:'flex',alignItems:'center',gap:6,padding:'6px 10px 10px 10px'}},
         sources,
-        agents,
         h('div',{style:{flex:1}}),
         h('input',{type:'file',accept:'.pdf,.png,.jpg,.jpeg,.csv,.doc,.docx',ref:(el)=>{this._chatFile=el;},style:{display:'none'},
           onChange:(e)=>{ const f=e.target.files&&e.target.files[0]; if(f) this.setState({chatAttach:f.name}); e.target.value=''; }}),
@@ -1318,21 +2037,34 @@ export default class App extends React.Component {
   }
 
   intelChat(){ const h=React.createElement; const chat=(this.activeChatObj||{msgs:[]}).msgs; const empty=chat.length===0;
+    if(this.onboarding && this.state.ob.msgs.length) return this.onboardThread();
     // Empty state — the ask-first layout: a faint brand watermark with the
     // composer floating in the vertical center; quiet prompt links at the
     // bottom. Once the first entry lands the composer docks to the bottom.
     const MARK='M14.868 15.99V15.995H17.8334V13.2048V13.2011H17.8294L4.14417 0H1.18008V2.79517L14.868 15.99ZM0 15.995H4.48643V11.7661H0V15.995ZM26.7415 15.99V15.995H29.7069V13.2048V13.2011H29.7029L22.8603 6.60055L16.0177 0H13.0536V2.79517L26.7415 15.99Z';
     if(empty){
-      return h('div',{style:{height:'calc(100vh - 57px)',position:'relative',display:'flex',flexDirection:'column',overflow:'hidden'}},
-        h('div',{style:{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'}},
+      // First arrival (no chats yet) is onboarding: Middesk asks the opening
+      // question, and the answer seeds the account's first policy.
+      const onboarding=(this.state.chats||[]).length===0;
+      const opener=!onboarding?null:h('div',{style:{display:'flex',gap:14,alignItems:'flex-start',marginBottom:26}},
+        h('span',{style:{display:'grid',placeItems:'center',width:34,height:34,borderRadius:9,flexShrink:0,background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',color:'var(--core-color-text-primary)'}},
+          h('svg',{width:16,height:9,viewBox:'0 0 30 16',fill:'currentColor'}, h('path',{d:MARK}))),
+        h('div',{style:{minWidth:0,paddingTop:1}},
+          this.mono('Getting started · Your first policy',{fontSize:10,color:'var(--core-color-text-muted)'}),
+          h('div',{style:{fontSize:15,lineHeight:1.55,marginTop:6,color:'var(--core-color-text-primary)',maxWidth:600}},
+            'Welcome. Please tell us about your company by providing a URL to your company website, or by writing a bit about it below.'),
+          h('div',{style:{fontSize:13,lineHeight:1.5,marginTop:8,color:'var(--core-color-text-muted)',maxWidth:600}},
+            'We’ll use this to start building your verification policy right away.')));
+      return h('div',{style:{height:'100vh',position:'relative',display:'flex',flexDirection:'column',overflow:'hidden'}},
+        onboarding?null:h('div',{style:{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'}},
           h('svg',{width:430,height:230,viewBox:'0 0 30 16',fill:'var(--core-color-surface-subtle)',style:{transform:'translateY(-130px)'}}, h('path',{d:MARK}))),
         h('div',{style:{flex:1,display:'flex',flexDirection:'column',justifyContent:'center',alignItems:'center',padding:'24px',position:'relative'}},
-          h('div',{style:{width:'100%',maxWidth:720}}, this.chatComposer())),
+          h('div',{style:{width:'100%',maxWidth:720}}, opener, this.chatComposer())),
         null);
     }
     const composer=h('div',{style:{position:'absolute',left:0,right:0,bottom:16,padding:'0 24px',pointerEvents:'none'}},
       h('div',{style:{maxWidth:820,margin:'0 auto',pointerEvents:'auto'}}, this.chatComposer({boxShadow:'var(--core-color-elevation-raised)'})));
-    return h('div',{style:{height:'calc(100vh - 57px)',position:'relative'}},
+    return h('div',{style:{height:'100vh',position:'relative'}},
       h('div',{id:'intel-msgs',style:{height:'100%',overflowY:'auto'}},
         h('div',{style:{maxWidth:820,margin:'0 auto',padding:'26px 24px 130px',display:'flex',flexDirection:'column',gap:18}},
           ...chat.map((it,i)=> h('div',{key:i,style:{display:'flex',flexDirection:'column',gap:14}},
@@ -2093,28 +2825,27 @@ export default class App extends React.Component {
       h(IconActionButton,{variant:'quiet','aria-label':'Back to all businesses',onClick:()=>this.setS({view:'list'})},
         h(ArrowLeft,{size:16,strokeWidth:1.5,'aria-hidden':true})),
       h('span',{style:{fontSize:16,fontWeight:700,letterSpacing:'-0.01em',color:'var(--core-color-text-primary)'}},middeskBusiness.name),
-      h('div',{style:{flex:1}}),
-      // Version dropdown: report snapshots, newest first, each carrying the
-      // analyst decision made on that snapshot (if any). Prototype state
-      // only — selecting a version just updates the trigger label. Bordered
-      // trigger with icon + chevron so it clearly reads as a dropdown.
-      h(Menu,null,
-        h(MenuTrigger,{asChild:true},
-          h(ActionButton,{variant:'secondary'},
-            h(HistoryIcon,{size:14,strokeWidth:1.5,'aria-hidden':true}),
-            'Version: '+(this.state.reportCVersion||'Aug 12, 2026 · Current'),
-            h(ChevronDown,{size:14,strokeWidth:1.5,'aria-hidden':true}))),
-        h(MenuContent,{align:'end'},
-          ...REPORT_C_VERSIONS.map(v=>
-            h(MenuItem,{key:v.date,onSelect:()=>this.setState({reportCVersion:v.date})},
-              h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:20,width:'100%',minWidth:280}},
-                h('span',null,v.date),
-                v.decision?this.pill(v.decision,v.tone):h('span',{style:{fontSize:11.5,color:'var(--core-color-text-muted)'}},'No decision')))))));
+      h('div',{style:{flex:1}}));
     // View buttons: on the column, just above the doc panel, with the
     // overflow menu (document actions + secondary views) pinned to the far
     // right as a round icon button.
+    // The Report entry doubles as the version dropdown: its label carries the
+    // active snapshot, and picking a version lands on the report view.
+    const reportVersionMenu=h(Menu,null,
+      h(MenuTrigger,{asChild:true},
+        h(ActionButton,{variant:tab==='report'?'secondary':'quiet'},
+          h(HistoryIcon,{size:13,strokeWidth:1.5,'aria-hidden':true}),
+          'Report · '+(this.state.reportCVersion||'Current'),
+          h(ChevronDown,{size:13,strokeWidth:1.5,'aria-hidden':true}))),
+      h(MenuContent,{align:'start'},
+        ...REPORT_C_VERSIONS.map(v=>
+          h(MenuItem,{key:v.date,onSelect:()=>this.setState({reportCTab:'report',reportCVersion:v.date})},
+            h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:20,width:'100%',minWidth:280}},
+              h('span',null,v.date),
+              v.decision?this.pill(v.decision,v.tone):h('span',{style:{fontSize:11.5,color:'var(--core-color-text-muted)'}},'No decision'))))));
     const viewButtons=h('div',{style:{display:'flex',alignItems:'center',flexWrap:'wrap',gap:6,minWidth:0}},
-      ...[['report','Report'],['attributes','Attributes'],['timeline','Timeline'],['sources','Sources'],['history','Identity history']].map(([v,l])=>
+      reportVersionMenu,
+      ...[['attributes','Attributes'],['timeline','Timeline'],['sources','Sources'],['history','Identity history']].map(([v,l])=>
         h(ActionButton,{key:v,variant:tab===v?'secondary':'quiet',onClick:()=>this.setState({reportCTab:v})},l)),
       h('div',{style:{flex:1}}),
       // Analyst decision control, left of the overflow menu.
@@ -2132,15 +2863,12 @@ export default class App extends React.Component {
     // scroller, so anchor chips scroll within it.
     // Side padding is adaptive: it scales with the column width (so widening
     // the chat rail tightens the margins) between sane bounds.
-    // Inside the card, the view buttons are a fixed header with the hairline
-    // under it; only the report body below the hairline scrolls, so the
-    // scrollbar lives under the hairline rather than running beside the row.
-    const cardHeader=h('div',{style:{flexShrink:0,display:'flex',flexDirection:'column',gap:14,padding:'20px clamp(40px, 10%, 120px) 14px',borderBottom:'1px solid var(--core-color-border-divider)'}},
-      viewButtons);
+    // The view buttons live on the canvas above the card (not inside it), so
+    // the card holds nothing but the active view's content.
+    const viewRow=h('div',{style:{flexShrink:0,padding:'0 2px 14px'}},viewButtons);
     // The white card floats on the canvas grey that also surrounds the chat.
-    // The card is a clipping shell: fixed header on top, scroller below.
+    // The card is a clipping shell around the scroller.
     const card=h('div',{style:{flex:1,minHeight:0,display:'flex',flexDirection:'column',background:'var(--core-color-surface-card)',border:'1px solid var(--core-color-border-default)',borderRadius:16,boxShadow:'var(--core-color-elevation-raised)',overflow:'hidden'}},
-      cardHeader,
       // Scrollbar is overlay-style: hidden until the pane is actively
       // scrolled (class toggled directly on the node, no re-render).
       h('div',{className:'overlay-scroll',onScroll:(e)=>{const el=e.currentTarget;el.classList.add('is-scrolling');clearTimeout(el._scrollT);el._scrollT=setTimeout(()=>el.classList.remove('is-scrolling'),700);},style:{flex:1,minHeight:0,overflowY:'auto',paddingBottom:18}},
@@ -2160,9 +2888,12 @@ export default class App extends React.Component {
     // canvas around it, keeping both center-aligned. Fixed 40px minimum
     // gutter on both sides of the card (the right gutter counts the 10px
     // divider handle, whose hairline sits at its center).
-    const centerColumn=h('div',{style:{flex:1,minWidth:0,display:'flex',flexDirection:'column',alignItems:'center',padding:'0 35px 14px 40px'}},
-      h('div',{style:{width:'100%',maxWidth:1000,flex:1,minHeight:0,display:'flex',flexDirection:'column'}},
+    // The report column never squeezes below 700px; the chat divider and
+    // window resizes give way to that floor.
+    const centerColumn=h('div',{style:{flex:1,display:'flex',flexDirection:'column',alignItems:'center',padding:'0 35px 14px 40px'}},
+      h('div',{style:{width:'100%',maxWidth:1000,minWidth:700,flex:1,minHeight:0,display:'flex',flexDirection:'column'}},
         chromeRow,
+        viewRow,
         card));
     // position:relative so absolutely-positioned helpers (Radix hidden
     // spans) anchor inside this clipped root instead of extending the
@@ -2172,16 +2903,44 @@ export default class App extends React.Component {
       h(ReportChatPanel,{business:middeskBusiness}));
   }
 
+  /* Policies — every completed onboarding run lands here as a draft.
+     Renders resolved snapshots (ob.drafts), newest first. */
+  /* Policies — the workflow builder. The list keeps every policy (seeds +
+     onboarding drafts); selecting one opens the unit-based builder (Screens
+     1-3 from the workflow-builder prototype plan). */
+  policiesPage(){
+    const h=React.createElement; const self=this;
+    // Onboarding drafts sit on top; the account's completed policies always show.
+    const drafts=[...(this.state.ob.drafts||[]),...this.obSeedPolicies];
+    const sel=Math.min(this.state.ob.draftSel||0,Math.max(0,drafts.length-1));
+    const d=drafts[sel];
+    // Each policy edits its own in-memory copy of a base workflow; the demo
+    // pair: Marketplace runs Workflow B, everything else Workflow A.
+    // Drafts created in Intelligence carry the workflow the survey built.
+    const baseFor=(dr)=>dr.workflow||(dr.scenario==='uber'?WORKFLOW_B:WORKFLOW_A);
+    const base=baseFor(d);
+    const counterpart=base.id==='B'?WORKFLOW_A:WORKFLOW_B;
+    return h('div',{style:{padding:'26px 32px 44px',maxWidth:1080,margin:'0 auto',display:'flex',flexDirection:'column',gap:18}},
+      h('div',null, h('h1',{style:{fontFamily:'var(--app-font)',fontWeight:600,fontSize:32,letterSpacing:'-.02em',margin:0}},'Policies')),
+      this.panel({},
+        ...drafts.map((dr,i)=> h('button',{key:i,onClick:()=>self.setState(s=>({ob:{...s.ob,draftSel:i}})),
+          style:{display:'flex',alignItems:'center',gap:14,width:'100%',padding:'16px 22px',border:0,borderBottom:i<drafts.length-1?'1px solid var(--core-color-border-default)':'none',background:i===sel?'var(--core-color-state-selected-bg)':'var(--core-color-surface-card)',cursor:'pointer',textAlign:'left'}},
+          h('div',{style:{flex:1,minWidth:0}},
+            h('div',{style:{fontSize:15,fontWeight:600,color:'var(--core-color-text-primary)'}},dr.name),
+            h('div',{style:{fontSize:12,color:'var(--core-color-text-muted)',marginTop:3}},
+              'Created '+dr.created+' · '+baseFor(dr).label+' · configurable units from the shared catalog')),
+          this.pill(dr.status||'Draft',(dr.status==='Active')?'clear':'watch')))),
+      h(PolicyBuilder,{policyKey:d.name+'·'+sel,baseWorkflow:base,counterpart}));
+  }
   screen(){
     const {direction,view}=this.state;
     if(view==='list') return this.identitiesList();
     if(view==='intelligence') return this.intelChat();
-    if(view==='report') return this.reportScreen('A');
-    if(view==='reportB') return this.reportScreen('B');
+    if(view==='policies') return this.policiesPage();
     if(view==='reportC') return this.reportScreenC();
-    if(direction==='A') return this.A_identity();
-    if(direction==='B') return this.B_identity();
-    return this.C_identity();
+    // Every identity opens as the Report C experience (Report A/B and the
+    // old identity screens are retired from the nav and routing).
+    return this.reportScreenC();
   }
   get portfolioList(){ const cur=this.activeId; const meta={
       vela:{rec:'Manual review',tone:'elev',net:'Elevated',updated:'Apr 21, 2026, 9:14 AM'},
@@ -2214,11 +2973,8 @@ export default class App extends React.Component {
   app(){
     const h=React.createElement; const {direction,view}=this.state;
     return h('div',{style:{display:'flex',height:'100vh',width:'100%',overflow:'hidden',background:'var(--core-color-surface-canvas)',fontFamily:'var(--app-font)',color:'var(--core-color-text-primary)'}},
-      this.state.navDrawer ? this.Sidebar() : null,
+      this.Sidebar(),
       h('main',{style:{flex:1,display:'flex',flexDirection:'column',minWidth:0}},
-        // Report C is a chromeless split surface: no Topbar, so the report
-        // panel and chat rail run the full window height.
-        view==='reportC'?null:this.Topbar(),
         h('div',{key:direction+view,id:'mid-scroll',style:{flex:1,overflow:'auto',opacity:1,position:'relative'}}, this.screen())),
       this.decisionDrawer());
   }

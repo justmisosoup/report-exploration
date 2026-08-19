@@ -1,0 +1,39 @@
+{
+  "id": "northgate",
+  "name": "Northgate Landscaping Supply LLC",
+  "state": "California",
+  "summary": "Landscaping supply retailer, LLC formed 2019, Hayward CA.",
+  "units": {
+    "physical_address.restricted_country": { "via": "watchlist", "values": ["US"], "observations": [{ "check": "address_country", "detail": "United States" }] },
+    "physical_address.exists": { "via": "address_deliverability", "result": "deliverable", "observations": [{ "check": "address_deliverability", "detail": "1200 Industrial Pkwy, Hayward CA · deliverable" }] },
+    "physical_address.permitted_types": { "via": "address_type", "values": ["commercial"], "observations": [{ "check": "address_property_type", "detail": "Commercial storefront" }] },
+    "physical_address.entity_linkage": { "via": "address_verification", "result": "authoritative_listing", "observations": [{ "check": "address_verification", "detail": "Listed on CA SOS filing" }] },
+    "physical_address.match": { "via": "address_verification", "result": "unverified", "observations": [
+      { "check": "address_verification", "detail": "CA SOS filing lists 1200 Industrial Pkwy, Hayward CA" },
+      { "check": "web_address_verification", "detail": "Company website lists 480 Commerce Way, Hayward CA" }
+    ] },
+    "industry.classification": { "via": "industry", "result": "classified", "value": "Landscaping supply · NAICS 444240", "observations": [{ "check": "industry", "detail": "Landscaping supply (NAICS 444240)" }] },
+    "industry.lists": { "via": "naics_code", "values": ["444240"], "observations": [{ "check": "naics_code", "detail": "444240 · Nursery, garden center, and farm supply" }] },
+    "industry.ptin_registered": { "via": "irs_ptin", "result": "not_found", "observations": [] },
+    "entity.type_match": { "via": "entity_type_match", "result": "match", "observations": [{ "check": "entity_type_match", "detail": "Submitted LLC · filed LLC" }] },
+    "entity.permitted_types": { "via": "entity_type", "values": ["llc"], "observations": [{ "check": "entity_type", "detail": "Limited Liability Company" }] },
+    "tin.type": { "via": "tin_type", "result": "ein", "observations": [{ "check": "tin_type", "detail": "EIN submitted" }] },
+    "tin.ein_name_match": { "via": "tin_match", "result": "found", "observations": [{ "check": "tin_match", "detail": "IRS: EIN matches Northgate Landscaping Supply LLC" }] },
+    "tin.ssn_person_match": { "via": "person_verification", "result": "not_found", "observations": [] },
+    "tin.issued": { "via": "tin_issued", "result": "issued", "observations": [{ "check": "tin_issued", "detail": "Issued 2019" }] },
+    "dba.registration": { "via": "dba_filings", "result": "not_found", "observations": [{ "check": "dba_filings", "detail": "No DBA on file · operates under legal name" }] },
+    "web.presence_quality": { "via": "web_quality", "result": "moderate", "observations": [{ "check": "web_quality", "detail": "Site + Yelp + supplier directory listings" }] },
+    "sos.filing_retrievable": { "via": "download_url", "result": "available", "observations": [{ "check": "download_url", "detail": "CA SOS PDF retrievable" }] },
+    "sos.name_match": { "via": "name_verification", "result": "exact", "observations": [{ "check": "name_verification", "detail": "Exact match to submitted legal name" }] },
+    "sos.good_standing": { "via": "sos_domestic_sub_status", "result": "good_standing", "observations": [{ "check": "sos_domestic_sub_status", "detail": "Active · good standing" }] },
+    "sos.registration_date": { "via": "registration_date", "result": "2019-03-14", "value": "March 14, 2019", "observations": [{ "check": "registration_date", "detail": "Filed 2019-03-14" }] },
+    "operations.foreign": { "via": "international", "values": [], "observations": [{ "check": "international", "detail": "No foreign operations detected" }] },
+    "web.site_exists": { "via": "website_verification", "result": "online", "observations": [{ "check": "website_status", "detail": "northgatelandscapingsupply.com · online" }] },
+    "web.cross_source_consistency": { "via": "profile_discovery", "result": "consistent", "observations": [{ "check": "profile_discovery", "detail": "Site, Yelp, and supplier profiles agree" }] },
+    "web.matches_application": { "via": "web_business_name_verification", "result": "all_match", "observations": [{ "check": "web_business_name_verification", "detail": "Name, phone, and email match application" }] },
+    "web.domain_linkage": { "via": "website_url_domain_ownership", "result": "ownership_confirmed", "observations": [{ "check": "website_url_domain_ownership", "detail": "Domain registered to the business" }] },
+    "web.url_consistency": { "via": "domain_redirect", "result": "consistent", "observations": [{ "check": "domain_consistency", "detail": "No redirects or shorteners" }] },
+    "web.domain_reputation": { "via": "url_risk", "result": "clean", "observations": [{ "check": "url_risk", "detail": "IPQS: no phishing, malware, or parking flags" }] },
+    "adverse_media.categories": { "via": "adverse_media.risk_scores", "values": ["casinos"], "scores": { "casinos": 0.71, "gambling": 0.22, "money_laundering": 0.08, "fraud_bribery_corruption": 0.05 }, "observations": [{ "check": "adverse_media.risk_scores", "detail": "Minerva: casinos 0.71 (supplier contract coverage for a casino resort landscape build), 29 other categories below threshold" }] }
+  }
+}
